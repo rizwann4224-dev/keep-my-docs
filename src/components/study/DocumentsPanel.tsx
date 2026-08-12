@@ -1,13 +1,13 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { extractText } from "@/lib/extract-text";
+import { transcribePages } from "@/lib/study.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-
-const MAX_BYTES = 30 * 1024 * 1024;
 
 export type DocumentRow = {
   id: string;
@@ -27,6 +27,7 @@ function formatSize(bytes: number) {
 
 export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userId: string }) {
   const queryClient = useQueryClient();
+  const ocrCall = useServerFn(transcribePages);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -52,7 +53,7 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Document removed");
+      toast.success("Source removed");
       queryClient.invalidateQueries({ queryKey: ["documents", subjectId] });
     },
     onError: () => toast.error("Could not delete this document"),
@@ -64,12 +65,12 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
     let saved = 0;
 
     for (const file of list) {
-      if (file.size > MAX_BYTES) {
-        toast.error(`"${file.name}" is larger than 30 MB`);
-        continue;
-      }
       setBusy(`Reading "${file.name}"…`);
-      const text = await extractText(file);
+      const text = await extractText(
+        file,
+        async (images) => (await ocrCall({ data: { images } })).text,
+        (message) => setBusy(message),
+      );
       setBusy(`Uploading "${file.name}"…`);
 
       const safeName = file.name.replace(/[^\w.\- ]+/g, "_");
@@ -101,7 +102,7 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
 
     setBusy(null);
     if (saved > 0) {
-      toast.success(`${saved} document${saved > 1 ? "s" : ""} added to this subject`);
+      toast.success(`${saved} source${saved > 1 ? "s" : ""} added`);
       queryClient.invalidateQueries({ queryKey: ["documents", subjectId] });
     }
   }
@@ -134,14 +135,14 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
           setDragging(false);
           void uploadFiles(e.dataTransfer.files);
         }}
-        className={`rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
+        className={`rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
           dragging ? "border-primary bg-accent" : "border-border bg-card"
         }`}
       >
-        <h2 className="text-base font-semibold text-foreground">Add source material</h2>
+        <h2 className="text-base font-semibold text-foreground">Add sources</h2>
         <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
-          PDF, DOCX, TXT and Markdown are read for text so the assistant can answer and mark from
-          them. Up to 30 MB per file.
+          PDF, DOCX, TXT, Markdown and images. Scanned PDFs without a text layer are read with OCR
+          automatically. No size limit.
         </p>
         <div className="mt-4">
           <Button onClick={() => inputRef.current?.click()} disabled={!!busy}>
@@ -162,7 +163,7 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          {documents.length} source{documents.length === 1 ? "" : "s"} in this subject
+          {documents.length} source{documents.length === 1 ? "" : "s"} in this notebook
         </p>
         <Input
           value={search}
@@ -172,12 +173,12 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
         />
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
         {isLoading ? (
           <p className="p-8 text-center text-sm text-muted-foreground">Loading sources…</p>
         ) : filtered.length === 0 ? (
           <p className="p-10 text-center text-sm text-muted-foreground">
-            No sources yet. Upload the study material for this subject above.
+            No sources yet. Upload the study material for this notebook above.
           </p>
         ) : (
           <ul className="divide-y divide-border">
