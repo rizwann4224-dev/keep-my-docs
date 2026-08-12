@@ -1,13 +1,26 @@
 // Client-side document text extraction. Browser-only: call from event handlers.
 
-const MAX_CHARS = 120_000;
+const MAX_CHARS = 400_000;
+const OCR_MAX_PAGES = 20;
 
-export async function extractText(file: File): Promise<string> {
+export type OcrFn = (images: string[]) => Promise<string>;
+
+export async function extractText(
+  file: File,
+  ocr?: OcrFn,
+  onProgress?: (message: string) => void,
+): Promise<string> {
   const name = file.name.toLowerCase();
 
   try {
     if (name.endsWith(".pdf") || file.type === "application/pdf") {
-      return (await extractPdf(file)).slice(0, MAX_CHARS);
+      const text = await extractPdf(file);
+      if (text.replace(/\[Page \d+\]/g, "").trim().length > 200 || !ocr) {
+        return text.slice(0, MAX_CHARS);
+      }
+      onProgress?.(`Scanned PDF — reading "${file.name}" with OCR…`);
+      const ocrText = await ocrPdf(file, ocr);
+      return (ocrText || text).slice(0, MAX_CHARS);
     }
     if (name.endsWith(".docx")) {
       const mammoth = await import("mammoth/mammoth.browser.js");
@@ -15,10 +28,12 @@ export async function extractText(file: File): Promise<string> {
       const result = await mammoth.extractRawText({ arrayBuffer: buffer });
       return result.value.slice(0, MAX_CHARS);
     }
-    if (
-      file.type.startsWith("text/") ||
-      /\.(txt|md|csv|json|html?)$/.test(name)
-    ) {
+    if (file.type.startsWith("image/") && ocr) {
+      onProgress?.(`Reading text from "${file.name}"…`);
+      const dataUrl = await fileToDataUrl(file);
+      return (await ocr([dataUrl])).slice(0, MAX_CHARS);
+    }
+    if (file.type.startsWith("text/") || /\.(txt|md|csv|json|html?)$/.test(name)) {
       return (await file.text()).slice(0, MAX_CHARS);
     }
   } catch (error) {
@@ -27,15 +42,27 @@ export async function extractText(file: File): Promise<string> {
   return "";
 }
 
-async function extractPdf(file: File): Promise<string> {
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function loadPdf(file: File) {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
     "pdfjs-dist/build/pdf.worker.min.mjs",
     import.meta.url,
   ).toString();
-
   const data = new Uint8Array(await file.arrayBuffer());
-  const doc = await pdfjs.getDocument({ data }).promise;
+  return pdfjs.getDocument({ data }).promise;
+}
+
+async function extractPdf(file: File): Promise<string> {
+  const doc = await loadPdf(file);
   const parts: string[] = [];
 
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
@@ -51,4 +78,28 @@ async function extractPdf(file: File): Promise<string> {
   }
 
   return parts.join("\n\n");
+}
+
+async function ocrPdf(file: File, ocr: OcrFn): Promise<string> {
+  const doc = await loadPdf(file);
+  const pageCount = Math.min(doc.numPages, OCR_MAX_PAGES);
+  const out: string[] = [];
+
+  for (let start = 1; start <= pageCount; start += 5) {
+    const images: string[] = [];
+    for (let n = start; n < start + 5 && n <= pageCount; n += 1) {
+      const page = await doc.getPage(n);
+      const viewport = page.getViewport({ scale: 1.6 });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) continue;
+      await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+      images.push(canvas.toDataURL("image/jpeg", 0.7));
+    }
+    if (images.length) out.push(await ocr(images));
+  }
+
+  return out.join("\n\n");
 }

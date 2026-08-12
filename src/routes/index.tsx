@@ -17,17 +17,17 @@ import { HistoryPanel } from "@/components/study/HistoryPanel";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Study Desk — Source-Grounded Answers & Exam Marking" },
+      { title: "Study Desk — Notebooks for Source-Grounded Exam Answers" },
       {
         name: "description",
         content:
-          "Upload your subject material, ask questions answered from your own documents, and get strict examiner-style marking with model answers and recommendations.",
+          "Create a notebook per subject, upload your material, get precise answers from your own documents and examiner-style marking exactly as you want it.",
       },
-      { property: "og:title", content: "Study Desk — Source-Grounded Answers & Exam Marking" },
+      { property: "og:title", content: "Study Desk — Notebooks for Source-Grounded Exam Answers" },
       {
         property: "og:description",
         content:
-          "A private study workspace: subject tabs, document-grounded answers and item-by-item exam marking.",
+          "Private notebooks: your sources, precise document-grounded answers and flexible exam marking.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -36,13 +36,14 @@ export const Route = createFileRoute("/")({
   component: WorkspacePage,
 });
 
-type Subject = { id: string; name: string };
+type Subject = { id: string; name: string; created_at: string };
 
 function WorkspacePage() {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
   const queryClient = useQueryClient();
-  const [activeSubject, setActiveSubject] = useState<string | null>(null);
+  const [openNotebook, setOpenNotebook] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [newSubject, setNewSubject] = useState("");
 
   useEffect(() => {
@@ -55,19 +56,26 @@ function WorkspacePage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("subjects")
-        .select("id, name")
-        .order("created_at", { ascending: true });
+        .select("id, name, created_at")
+        .order("created_at", { ascending: false });
       if (error) throw error;
       return data as Subject[];
     },
   });
 
-  useEffect(() => {
-    if (!activeSubject && subjects.length > 0) setActiveSubject(subjects[0]!.id);
-    if (activeSubject && !subjects.some((s) => s.id === activeSubject)) {
-      setActiveSubject(subjects[0]?.id ?? null);
-    }
-  }, [subjects, activeSubject]);
+  const { data: counts = {} } = useQuery({
+    queryKey: ["subject-doc-counts", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("documents").select("subject_id");
+      if (error) throw error;
+      const map: Record<string, number> = {};
+      for (const row of data as { subject_id: string | null }[]) {
+        if (row.subject_id) map[row.subject_id] = (map[row.subject_id] ?? 0) + 1;
+      }
+      return map;
+    },
+  });
 
   const createSubject = useMutation({
     mutationFn: async (name: string) => {
@@ -75,17 +83,18 @@ function WorkspacePage() {
       const { data, error } = await supabase
         .from("subjects")
         .insert({ user_id: user.id, name })
-        .select("id, name")
+        .select("id, name, created_at")
         .single();
       if (error) throw error;
       return data as Subject;
     },
     onSuccess: (subject) => {
       setNewSubject("");
-      setActiveSubject(subject.id);
+      setCreating(false);
+      setOpenNotebook(subject.id);
       queryClient.invalidateQueries({ queryKey: ["subjects", user?.id] });
     },
-    onError: () => toast.error("Could not create this subject"),
+    onError: () => toast.error("Could not create this notebook"),
   });
 
   const deleteSubject = useMutation({
@@ -94,7 +103,8 @@ function WorkspacePage() {
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Subject removed");
+      toast.success("Notebook deleted");
+      setOpenNotebook(null);
       queryClient.invalidateQueries({ queryKey: ["subjects", user?.id] });
     },
   });
@@ -102,23 +112,29 @@ function WorkspacePage() {
   if (loading || !user) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background">
-        <p className="text-sm text-muted-foreground">Loading your study desk…</p>
+        <p className="text-sm text-muted-foreground">Loading your notebooks…</p>
       </main>
     );
   }
+
+  const active = subjects.find((s) => s.id === openNotebook) ?? null;
 
   return (
     <main className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-4">
-          <div>
+          <button
+            type="button"
+            onClick={() => setOpenNotebook(null)}
+            className="text-left"
+          >
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">
               Study Desk
             </p>
             <h1 className="mt-0.5 text-lg font-semibold text-foreground">
-              Source-grounded answers &amp; examiner marking
+              {active ? active.name : "Your notebooks"}
             </h1>
-          </div>
+          </button>
           <div className="flex items-center gap-2">
             <span className="hidden text-sm text-muted-foreground sm:inline">{user.email}</span>
             <SettingsDialog />
@@ -136,91 +152,136 @@ function WorkspacePage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-6 py-6">
-        <div className="flex flex-wrap items-center gap-2 border-b border-border pb-4">
-          {subjects.map((subject) => (
-            <button
-              key={subject.id}
-              type="button"
-              onClick={() => setActiveSubject(subject.id)}
-              className={`group flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors ${
-                activeSubject === subject.id
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card text-foreground hover:bg-muted"
-              }`}
-            >
-              {subject.name}
-              <span
-                role="button"
-                tabIndex={0}
-                aria-label={`Delete ${subject.name}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (window.confirm(`Delete "${subject.name}" and its questions?`)) {
-                    deleteSubject.mutate(subject.id);
-                  }
-                }}
-                onKeyDown={(e) => e.stopPropagation()}
-                className="opacity-40 transition-opacity hover:opacity-100"
-              >
-                ×
-              </span>
-            </button>
-          ))}
-          <form
-            className="flex items-center gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (newSubject.trim()) createSubject.mutate(newSubject.trim());
-            }}
-          >
-            <Input
-              value={newSubject}
-              onChange={(e) => setNewSubject(e.target.value)}
-              placeholder="New subject"
-              className="h-9 w-40"
-            />
-            <Button type="submit" size="sm" variant="outline" disabled={!newSubject.trim()}>
-              Add
-            </Button>
-          </form>
-        </div>
-
-        {!activeSubject ? (
-          <div className="mt-16 text-center">
-            <h2 className="text-lg font-semibold text-foreground">Create your first subject</h2>
-            <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              Each subject keeps its own documents, questions and lessons learned — for example
-              "Audit &amp; Assurance" or "Financial Reporting".
-            </p>
-          </div>
-        ) : (
-          <Tabs defaultValue="ask" className="mt-6">
-            <TabsList>
-              <TabsTrigger value="ask">Ask</TabsTrigger>
-              <TabsTrigger value="mark">Mark &amp; evaluate</TabsTrigger>
-              <TabsTrigger value="documents">Sources</TabsTrigger>
-              <TabsTrigger value="lessons">Lessons learned</TabsTrigger>
-              <TabsTrigger value="history">History</TabsTrigger>
-            </TabsList>
-            <div className="mt-6">
-              <TabsContent value="ask">
-                <AskPanel subjectId={activeSubject} />
-              </TabsContent>
-              <TabsContent value="mark">
-                <MarkPanel subjectId={activeSubject} />
-              </TabsContent>
-              <TabsContent value="documents">
-                <DocumentsPanel subjectId={activeSubject} userId={user.id} />
-              </TabsContent>
-              <TabsContent value="lessons">
-                <LessonsPanel subjectId={activeSubject} />
-              </TabsContent>
-              <TabsContent value="history">
-                <HistoryPanel subjectId={activeSubject} />
-              </TabsContent>
+      <div className="mx-auto max-w-6xl px-6 py-8">
+        {!active ? (
+          <>
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-semibold text-foreground">Notebooks</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  One notebook per subject — its own sources, questions and lessons learned.
+                </p>
+              </div>
             </div>
-          </Tabs>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-xl border-2 border-dashed border-border bg-card p-5">
+                {creating ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (newSubject.trim()) createSubject.mutate(newSubject.trim());
+                    }}
+                    className="space-y-3"
+                  >
+                    <Input
+                      autoFocus
+                      value={newSubject}
+                      onChange={(e) => setNewSubject(e.target.value)}
+                      placeholder="e.g. Audit & Assurance"
+                    />
+                    <div className="flex gap-2">
+                      <Button type="submit" size="sm" disabled={!newSubject.trim()}>
+                        Create
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setCreating(false)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setCreating(true)}
+                    className="flex h-full w-full flex-col items-center justify-center gap-2 py-6 text-center"
+                  >
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-xl leading-none text-primary-foreground">
+                      +
+                    </span>
+                    <span className="text-sm font-medium text-foreground">New notebook</span>
+                    <span className="text-xs text-muted-foreground">
+                      Start a new subject workspace
+                    </span>
+                  </button>
+                )}
+              </div>
+
+              {subjects.map((subject) => (
+                <div
+                  key={subject.id}
+                  className="group relative rounded-xl border border-border bg-card p-5 transition-shadow hover:shadow-md"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpenNotebook(subject.id)}
+                    className="block w-full text-left"
+                  >
+                    <span className="text-2xl">📓</span>
+                    <h3 className="mt-3 truncate text-base font-semibold text-foreground">
+                      {subject.name}
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {counts[subject.id] ?? 0} source{(counts[subject.id] ?? 0) === 1 ? "" : "s"} ·{" "}
+                      {new Date(subject.created_at).toLocaleDateString(undefined, {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete ${subject.name}`}
+                    onClick={() => {
+                      if (window.confirm(`Delete "${subject.name}" and everything in it?`)) {
+                        deleteSubject.mutate(subject.id);
+                      }
+                    }}
+                    className="absolute right-3 top-3 rounded px-2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setOpenNotebook(null)}>
+              ← All notebooks
+            </Button>
+            <Tabs defaultValue="ask" className="mt-4">
+              <TabsList>
+                <TabsTrigger value="ask">Ask</TabsTrigger>
+                <TabsTrigger value="mark">Answer &amp; marking</TabsTrigger>
+                <TabsTrigger value="documents">Sources</TabsTrigger>
+                <TabsTrigger value="lessons">Lessons learned</TabsTrigger>
+                <TabsTrigger value="history">History</TabsTrigger>
+              </TabsList>
+              <div className="mt-6">
+                <TabsContent value="ask">
+                  <AskPanel subjectId={active.id} />
+                </TabsContent>
+                <TabsContent value="mark">
+                  <MarkPanel subjectId={active.id} />
+                </TabsContent>
+                <TabsContent value="documents">
+                  <DocumentsPanel subjectId={active.id} userId={user.id} />
+                </TabsContent>
+                <TabsContent value="lessons">
+                  <LessonsPanel subjectId={active.id} />
+                </TabsContent>
+                <TabsContent value="history">
+                  <HistoryPanel subjectId={active.id} />
+                </TabsContent>
+              </div>
+            </Tabs>
+          </>
         )}
       </div>
     </main>
