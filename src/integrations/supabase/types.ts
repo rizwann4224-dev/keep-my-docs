@@ -17,29 +17,161 @@ export type Database = {
       documents: {
         Row: {
           created_at: string
+          extracted_text: string | null
           id: string
           mime_type: string | null
           name: string
           size_bytes: number
           storage_path: string
+          subject_id: string | null
           user_id: string
         }
         Insert: {
           created_at?: string
+          extracted_text?: string | null
           id?: string
           mime_type?: string | null
           name: string
           size_bytes?: number
           storage_path: string
+          subject_id?: string | null
           user_id: string
         }
         Update: {
           created_at?: string
+          extracted_text?: string | null
           id?: string
           mime_type?: string | null
           name?: string
           size_bytes?: number
           storage_path?: string
+          subject_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      learning_notes: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          subject_id: string | null
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          subject_id?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          subject_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learning_notes_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      qa_entries: {
+        Row: {
+          created_at: string
+          id: string
+          mode: string
+          question: string
+          response: string
+          subject_id: string | null
+          user_answer: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          mode: string
+          question: string
+          response: string
+          subject_id?: string | null
+          user_answer?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          mode?: string
+          question?: string
+          response?: string
+          subject_id?: string | null
+          user_answer?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qa_entries_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subjects: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          created_at: string
+          font_family: string
+          theme: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          font_family?: string
+          theme?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          font_family?: string
+          theme?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
