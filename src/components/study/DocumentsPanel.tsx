@@ -4,6 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { extractText } from "@/lib/extract-text";
+import { uploadWithProgress, formatSpeed } from "@/lib/upload";
+import { Progress } from "@/components/ui/progress";
 import { transcribePages } from "@/lib/study.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,48 +61,75 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
     onError: () => toast.error("Could not delete this document"),
   });
 
+  function setUpload(name: string, patch: Partial<UploadState>) {
+    setUploads((prev) =>
+      prev.map((u) => (u.name === name ? { ...u, ...patch } : u)),
+    );
+  }
+
+  async function uploadOne(file: File): Promise<boolean> {
+    const safeName = file.name.replace(/[^\w.\- ]+/g, "_");
+    const path = `${userId}/${crypto.randomUUID()}-${safeName}`;
+
+    // Upload and text extraction run at the same time — the network transfer no
+    // longer waits for parsing/OCR to finish.
+    const uploadTask = uploadWithProgress("documents", path, file, (p) =>
+      setUpload(file.name, {
+        percent: p.percent,
+        speed: formatSpeed(p.bytesPerSecond),
+        stage: p.percent >= 100 ? "Processing…" : "Uploading",
+      }),
+    );
+    const extractTask = extractText(
+      file,
+      async (images) => (await ocrCall({ data: { images } })).text,
+      (message) => setUpload(file.name, { stage: message }),
+    );
+
+    let text = "";
+    try {
+      [, text] = await Promise.all([uploadTask, extractTask]);
+    } catch (error) {
+      await extractTask.catch(() => "");
+      toast.error(
+        `Upload failed for "${file.name}"${error instanceof Error ? `: ${error.message}` : ""}`,
+      );
+      return false;
+    }
+
+    const { error: insertError } = await supabase.from("documents").insert({
+      user_id: userId,
+      subject_id: subjectId,
+      name: file.name,
+      storage_path: path,
+      mime_type: file.type || null,
+      size_bytes: file.size,
+      extracted_text: text || null,
+    });
+    if (insertError) {
+      await supabase.storage.from("documents").remove([path]);
+      toast.error(`Could not save "${file.name}"`);
+      return false;
+    }
+    if (!text) toast.warning(`"${file.name}" stored, but no readable text was found in it.`);
+    return true;
+  }
+
   async function uploadFiles(files: FileList | File[]) {
     const list = Array.from(files);
     if (list.length === 0) return;
-    let saved = 0;
 
-    for (const file of list) {
-      setBusy(`Reading "${file.name}"…`);
-      const text = await extractText(
-        file,
-        async (images) => (await ocrCall({ data: { images } })).text,
-        (message) => setBusy(message),
-      );
-      setBusy(`Uploading "${file.name}"…`);
+    setUploads(
+      list.map((f) => ({ name: f.name, percent: 0, speed: "", stage: "Queued", size: f.size })),
+    );
+    setBusy(`Uploading ${list.length} file${list.length > 1 ? "s" : ""}…`);
 
-      const safeName = file.name.replace(/[^\w.\- ]+/g, "_");
-      const path = `${userId}/${crypto.randomUUID()}-${safeName}`;
-      const { error: uploadError } = await supabase.storage
-        .from("documents")
-        .upload(path, file, { contentType: file.type || "application/octet-stream" });
-      if (uploadError) {
-        toast.error(`Upload failed for "${file.name}"`);
-        continue;
-      }
-      const { error: insertError } = await supabase.from("documents").insert({
-        user_id: userId,
-        subject_id: subjectId,
-        name: file.name,
-        storage_path: path,
-        mime_type: file.type || null,
-        size_bytes: file.size,
-        extracted_text: text || null,
-      });
-      if (insertError) {
-        await supabase.storage.from("documents").remove([path]);
-        toast.error(`Could not save "${file.name}"`);
-        continue;
-      }
-      if (!text) toast.warning(`"${file.name}" stored, but no readable text was found in it.`);
-      saved += 1;
-    }
+    // Files upload in parallel instead of one after another.
+    const results = await Promise.all(list.map((file) => uploadOne(file)));
+    const saved = results.filter(Boolean).length;
 
     setBusy(null);
+    setUploads([]);
     if (saved > 0) {
       toast.success(`${saved} source${saved > 1 ? "s" : ""} added`);
       queryClient.invalidateQueries({ queryKey: ["documents", subjectId] });
