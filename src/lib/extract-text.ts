@@ -52,11 +52,11 @@ function fileToDataUrl(file: File): Promise<string> {
 }
 
 async function loadPdf(file: File) {
-  const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    "pdfjs-dist/build/pdf.worker.min.mjs",
-    import.meta.url,
-  ).toString();
+  const [pdfjs, workerUrl] = await Promise.all([
+    import("pdfjs-dist"),
+    import("pdfjs-dist/build/pdf.worker.min.mjs?url").then((m) => m.default),
+  ]);
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
   const data = new Uint8Array(await file.arrayBuffer());
   return pdfjs.getDocument({ data }).promise;
 }
