@@ -197,6 +197,24 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
             e.target.value = "";
           }}
         />
+        {uploads.length > 0 && (
+          <ul className="mx-auto mt-6 max-w-lg space-y-3 text-left">
+            {uploads.map((u) => (
+              <li key={u.name} className="rounded-lg border border-border bg-background p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate text-sm font-medium text-foreground">{u.name}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {u.percent}%{u.speed ? ` · ${u.speed}` : ""}
+                  </span>
+                </div>
+                <Progress value={u.percent} className="mt-2 h-1.5" />
+                <p className="mt-1.5 truncate text-xs text-muted-foreground">
+                  {u.stage} · {formatSize(u.size)}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
