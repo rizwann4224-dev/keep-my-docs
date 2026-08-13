@@ -119,7 +119,7 @@ export function MarkPanel({ subjectId }: { subjectId: string }) {
         </Button>
       </div>
 
-      {result && (
+      {result !== null && (
         <div className="rounded-xl border border-border bg-card p-6">
           <Markdown>{result}</Markdown>
           <LessonCapture subjectId={subjectId} />

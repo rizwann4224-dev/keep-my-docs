@@ -5,8 +5,8 @@ export type StudyRequest = {
   subjectId: string;
   mode: "ask" | "mark";
   question: string;
-  userAnswer?: string;
-  parts?: MarkPart[];
+  userAnswer?: string | undefined;
+  parts?: MarkPart[] | undefined;
 };
 
 /** Streams the model's answer token-by-token; resolves with the full text. */
