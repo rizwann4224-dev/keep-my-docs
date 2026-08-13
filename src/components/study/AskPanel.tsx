@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { runStudyQuery } from "@/lib/study.functions";
+import { streamStudyQuery } from "@/lib/study-stream";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
@@ -11,24 +10,31 @@ import { LessonCapture } from "@/components/study/LessonCapture";
 type Turn = { question: string; answer: string };
 
 export function AskPanel({ subjectId }: { subjectId: string }) {
-  const run = useServerFn(runStudyQuery);
   const [question, setQuestion] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [streaming, setStreaming] = useState<Turn | null>(null);
 
   const mutation = useMutation({
-    mutationFn: async (q: string) =>
-      run({ data: { subjectId, mode: "ask" as const, question: q } }),
-    onSuccess: (res, q) => {
-      setTurns((prev) => [...prev, { question: q, answer: res.content }]);
+    mutationFn: async (q: string) => {
+      setStreaming({ question: q, answer: "" });
+      return streamStudyQuery({ subjectId, mode: "ask", question: q }, (full) =>
+        setStreaming({ question: q, answer: full }),
+      );
+    },
+    onSuccess: (answer, q) => {
+      setTurns((prev) => [...prev, { question: q, answer }]);
+      setStreaming(null);
       setQuestion("");
     },
-    onError: (e: unknown) =>
-      toast.error(e instanceof Error ? e.message : "Could not answer that"),
+    onError: (e: unknown) => {
+      setStreaming(null);
+      toast.error(e instanceof Error ? e.message : "Could not answer that");
+    },
   });
 
   function submit() {
     const q = question.trim();
-    if (q.length < 2) return;
+    if (q.length < 2 || mutation.isPending) return;
     mutation.mutate(q);
   }
 
@@ -56,8 +62,22 @@ export function AskPanel({ subjectId }: { subjectId: string }) {
             </div>
           </div>
         ))}
-        {mutation.isPending && (
-          <p className="text-sm text-muted-foreground">Searching your sources…</p>
+        {streaming && (
+          <div className="space-y-3">
+            <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-4 py-2 text-sm text-primary-foreground">
+              {streaming.question}
+            </p>
+            <div className="rounded-xl border border-border bg-card p-5">
+              {streaming.answer ? (
+                <Markdown>{streaming.answer}</Markdown>
+              ) : (
+                <p className="text-sm text-muted-foreground">Searching your sources…</p>
+              )}
+              {streaming.answer && (
+                <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-foreground align-text-bottom" />
+              )}
+            </div>
+          </div>
         )}
       </div>
 
