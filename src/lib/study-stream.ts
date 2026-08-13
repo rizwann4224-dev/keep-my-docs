@@ -23,7 +23,7 @@ export async function streamStudyQuery(
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
-    signal,
+    signal: signal ?? null,
   });
 
   if (!res.ok || !res.body) {
