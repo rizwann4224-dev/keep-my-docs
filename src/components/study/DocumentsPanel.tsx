@@ -27,12 +27,21 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+type UploadState = {
+  name: string;
+  size: number;
+  percent: number;
+  speed: string;
+  stage: string;
+};
+
 export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userId: string }) {
   const queryClient = useQueryClient();
   const ocrCall = useServerFn(transcribePages);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [uploads, setUploads] = useState<UploadState[]>([]);
   const [search, setSearch] = useState("");
 
   const { data: documents = [], isLoading } = useQuery({
