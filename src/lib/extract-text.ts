@@ -83,23 +83,25 @@ async function extractPdf(file: File): Promise<string> {
 async function ocrPdf(file: File, ocr: OcrFn): Promise<string> {
   const doc = await loadPdf(file);
   const pageCount = Math.min(doc.numPages, OCR_MAX_PAGES);
-  const out: string[] = [];
+  const batches: string[][] = [];
 
   for (let start = 1; start <= pageCount; start += 5) {
     const images: string[] = [];
     for (let n = start; n < start + 5 && n <= pageCount; n += 1) {
       const page = await doc.getPage(n);
-      const viewport = page.getViewport({ scale: 1.6 });
+      const viewport = page.getViewport({ scale: 1.4 });
       const canvas = document.createElement("canvas");
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       const ctx = canvas.getContext("2d");
       if (!ctx) continue;
       await page.render({ canvas, canvasContext: ctx, viewport }).promise;
-      images.push(canvas.toDataURL("image/jpeg", 0.7));
+      images.push(canvas.toDataURL("image/jpeg", 0.65));
     }
-    if (images.length) out.push(await ocr(images));
+    if (images.length) batches.push(images);
   }
 
+  // All page batches are transcribed in parallel rather than one after another.
+  const out = await Promise.all(batches.map((images) => ocr(images)));
   return out.join("\n\n");
 }

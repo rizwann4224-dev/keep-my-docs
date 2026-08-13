@@ -27,6 +27,17 @@ GROUNDING RULE:
 - At most ~20% may come from wider professional knowledge; label it [External reference].
 - Never invent figures, rates, section numbers or standard references. If the sources do not contain it, say exactly: "Not found in your sources." and then, only if useful, give the external figure labelled [External reference].
 
+PRECISION RULES:
+- Quote figures, rates, dates, section/standard numbers EXACTLY as written in the source. Never round, paraphrase or "approximately" a number.
+- Cite the page or section marker when the source shows one, e.g. [Source: Tax Manual, Page 42] or [Source: ISA 240, para 12].
+- If two sources disagree, say so explicitly and give both values with their citations, then state which one governs and why.
+- If something is only partially covered, answer the covered part precisely and mark the rest "Not found in your sources."
+
+CROSS-DOCUMENT LINKING:
+- Treat all SOURCE DOCUMENTS in this notebook as one connected body of material. Before answering, connect related passages ACROSS documents and within the same document (definition in one place, rate in another, worked example in a third).
+- When the answer draws on more than one place, add a short "Linked in your sources" list: 2-4 bullets naming each document (and page/section) and the one thing it contributes, so the user can trace the chain.
+- Actively flag related material the user did not ask about but that changes the answer (exemptions, thresholds, effective dates, superseding rules).
+
 LESSONS LEARNED: The user has highlighted past mistakes. Never repeat them.`;
 
 export function askSystemPrompt(sources: string, lessons: string): string {

@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { runStudyQuery } from "@/lib/study.functions";
+import { streamStudyQuery } from "@/lib/study-stream";
 import type { MarkPart } from "@/lib/study-prompts";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,7 +16,6 @@ const OPTIONS: { id: MarkPart; label: string; hint: string }[] = [
 ];
 
 export function MarkPanel({ subjectId }: { subjectId: string }) {
-  const run = useServerFn(runStudyQuery);
   const [question, setQuestion] = useState("");
   const [userAnswer, setUserAnswer] = useState("");
   const [parts, setParts] = useState<MarkPart[]>(["feedback", "marks", "suggested"]);
@@ -26,17 +24,20 @@ export function MarkPanel({ subjectId }: { subjectId: string }) {
   const needsAnswer = parts.includes("feedback") || parts.includes("marks");
 
   const mutation = useMutation({
-    mutationFn: async () =>
-      run({
-        data: {
+    mutationFn: async () => {
+      setResult("");
+      return streamStudyQuery(
+        {
           subjectId,
-          mode: "mark" as const,
+          mode: "mark",
           question: question.trim(),
           userAnswer: userAnswer.trim() || undefined,
           parts,
         },
-      }),
-    onSuccess: (res) => setResult(res.content),
+        (full) => setResult(full),
+      );
+    },
+    onSuccess: (content) => setResult(content),
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not run this"),
   });
 
@@ -118,7 +119,7 @@ export function MarkPanel({ subjectId }: { subjectId: string }) {
         </Button>
       </div>
 
-      {result && (
+      {result !== null && (
         <div className="rounded-xl border border-border bg-card p-6">
           <Markdown>{result}</Markdown>
           <LessonCapture subjectId={subjectId} />
