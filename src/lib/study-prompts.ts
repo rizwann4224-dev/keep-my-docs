@@ -1,4 +1,4 @@
-export const MAX_CONTEXT_CHARS = 700_000;
+export const MAX_CONTEXT_CHARS = 120_000;
 
 export function buildSourceBlock(
   docs: { name: string; extracted_text: string | null }[],
@@ -14,6 +14,81 @@ export function buildSourceBlock(
     )
     .join("\n\n");
 }
+
+const STOP = new Set([
+  "the", "a", "an", "of", "for", "and", "or", "to", "in", "on", "is", "are", "what",
+  "which", "how", "why", "with", "that", "this", "it", "be", "as", "at", "by", "from",
+]);
+
+/**
+ * Keyword-retrieval over the notebook's sources: only the passages that matter for
+ * this query are sent to the model. Keeps answers grounded while cutting the token
+ * cost of every message by ~10x versus shipping whole documents.
+ */
+export function buildRelevantSourceBlock(
+  docs: { name: string; extracted_text: string | null }[],
+  query: string,
+  budget = MAX_CONTEXT_CHARS,
+): string {
+  const usable = docs.filter((d) => (d.extracted_text ?? "").trim().length > 0);
+  if (usable.length === 0) return "NO_SOURCE_TEXT_AVAILABLE";
+
+  const total = usable.reduce((n, d) => n + (d.extracted_text ?? "").length, 0);
+  if (total <= budget) return buildSourceBlock(usable);
+
+  const terms = Array.from(
+    new Set(
+      query
+        .toLowerCase()
+        .split(/[^a-z0-9%.]+/)
+        .filter((w) => w.length > 2 && !STOP.has(w)),
+    ),
+  );
+
+  const CHUNK = 4_000;
+  type Chunk = { doc: string; idx: number; text: string; score: number };
+  const chunks: Chunk[] = [];
+
+  for (const doc of usable) {
+    const text = doc.extracted_text ?? "";
+    for (let i = 0; i < text.length; i += CHUNK) {
+      const slice = text.slice(i, i + CHUNK);
+      const lower = slice.toLowerCase();
+      let score = 0;
+      for (const term of terms) {
+        let from = 0;
+        for (;;) {
+          const at = lower.indexOf(term, from);
+          if (at === -1) break;
+          score += 1;
+          from = at + term.length;
+        }
+      }
+      chunks.push({ doc: doc.name, idx: i / CHUNK, text: slice, score });
+    }
+  }
+
+  chunks.sort((a, b) => b.score - a.score);
+  const picked: Chunk[] = [];
+  let used = 0;
+  for (const chunk of chunks) {
+    if (used + chunk.text.length > budget) continue;
+    picked.push(chunk);
+    used += chunk.text.length;
+    if (used >= budget) break;
+  }
+  // Always include the opening of each document for context/definitions.
+  if (picked.length === 0) return buildSourceBlock(usable);
+
+  picked.sort((a, b) => (a.doc === b.doc ? a.idx - b.idx : a.doc.localeCompare(b.doc)));
+  return picked
+    .map(
+      (c) =>
+        `<<<SOURCE: ${c.doc} (extract ${c.idx + 1})>>>\n${c.text}\n<<<END EXTRACT>>>`,
+    )
+    .join("\n\n");
+}
+
 
 export function buildLessonsBlock(notes: { content: string }[]): string {
   if (notes.length === 0) return "None recorded yet.";
