@@ -19,6 +19,10 @@ const MODEL_CHAIN = [
   "google/gemini-2.5-flash-lite",
 ];
 
+/** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
+const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
+
+
 const Body = z.object({
   subjectId: z.string().uuid(),
   mode: z.enum(["ask", "mark", "insights"]),
@@ -99,6 +103,7 @@ export const Route = createFileRoute("/api/study")({
             : data.question;
 
         let upstream: Response | null = null;
+        let source: "gateway" | "google" = "gateway";
         let lastStatus = 0;
         for (const model of MODEL_CHAIN) {
           const res = await fetch(GATEWAY, {
@@ -126,19 +131,44 @@ export const Route = createFileRoute("/api/study")({
           if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
         }
 
+        // Allowance/rate-limit exhausted on the shared gateway — fall back to the
+        // project's own Gemini key so the user is never blocked.
+        if (!upstream && (lastStatus === 402 || lastStatus === 429)) {
+          const googleKey = process.env["GEMINI_API_KEY"];
+          if (googleKey) {
+            for (const model of GOOGLE_MODEL_CHAIN) {
+              const res = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "x-goog-api-key": googleKey },
+                  body: JSON.stringify({
+                    systemInstruction: { parts: [{ text: system }] },
+                    contents: [{ role: "user", parts: [{ text: userContent }] }],
+                    generationConfig: { temperature: 0, topP: 0.1 },
+                  }),
+                },
+              );
+              if (res.ok && res.body) {
+                upstream = res;
+                source = "google";
+                break;
+              }
+              lastStatus = res.status;
+              await res.body?.cancel();
+              if (res.status !== 429 && res.status !== 503) break;
+              await new Promise((r) => setTimeout(r, 800));
+            }
+          }
+        }
+
         if (!upstream) {
           if (lastStatus === 429)
             return new Response("The AI is busy right now — try again in a few seconds.", {
               status: 429,
             });
-          if (lastStatus === 402)
-            return new Response(
-              "Your workspace has used its AI allowance for today. It refreshes automatically — or add credits in workspace billing to keep going without waiting.",
-              { status: 402 },
-            );
           return new Response(`AI request failed (${lastStatus})`, { status: 502 });
         }
-
 
         const encoder = new TextEncoder();
         const decoder = new TextDecoder();
@@ -163,8 +193,14 @@ export const Route = createFileRoute("/api/study")({
                   try {
                     const json = JSON.parse(payload) as {
                       choices?: { delta?: { content?: string } }[];
+                      candidates?: { content?: { parts?: { text?: string }[] } }[];
                     };
-                    const delta = json.choices?.[0]?.delta?.content;
+                    const delta =
+                      source === "google"
+                        ? (json.candidates?.[0]?.content?.parts ?? [])
+                            .map((p) => p.text ?? "")
+                            .join("")
+                        : json.choices?.[0]?.delta?.content;
                     if (delta) {
                       full += delta;
                       controller.enqueue(encoder.encode(delta));
@@ -197,6 +233,7 @@ export const Route = createFileRoute("/api/study")({
             "X-Accel-Buffering": "no",
           },
         });
+
       },
     },
   },
