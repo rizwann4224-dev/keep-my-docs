@@ -3,7 +3,7 @@ import type { MarkPart } from "@/lib/study-prompts";
 
 export type StudyRequest = {
   subjectId: string;
-  mode: "ask" | "mark";
+  mode: "ask" | "mark" | "insights";
   question: string;
   userAnswer?: string | undefined;
   parts?: MarkPart[] | undefined;

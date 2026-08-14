@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   askSystemPrompt,
   buildLessonsBlock,
+  insightsSystemPrompt,
   buildRelevantSourceBlock,
   markSystemPrompt,
   type MarkPart,
@@ -20,7 +21,7 @@ const MODEL_CHAIN = [
 
 const Body = z.object({
   subjectId: z.string().uuid(),
-  mode: z.enum(["ask", "mark"]),
+  mode: z.enum(["ask", "mark", "insights"]),
   question: z.string().min(1),
   userAnswer: z.string().optional(),
   parts: z.array(z.enum(["feedback", "marks", "suggested", "recommendations"])).optional(),
@@ -63,16 +64,37 @@ export const Route = createFileRoute("/api/study")({
             .order("created_at", { ascending: true }),
         ]);
 
-        const retrievalQuery = `${data.question}\n${data.userAnswer ?? ""}`;
-        const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery);
         const lessons = buildLessonsBlock(notes ?? []);
-        const system =
-          data.mode === "mark"
-            ? markSystemPrompt(sources, lessons, (data.parts ?? []) as MarkPart[])
-            : askSystemPrompt(sources, lessons);
+
+        let system: string;
+        if (data.mode === "insights") {
+          const { data: attempts } = await supabase
+            .from("qa_entries")
+            .select("question, user_answer, response, created_at")
+            .eq("subject_id", data.subjectId)
+            .eq("mode", "mark")
+            .order("created_at", { ascending: true })
+            .limit(40);
+          if (!attempts || attempts.length === 0) {
+            return new Response(
+              "No marked attempts yet — answer a question in Answer & marking first.",
+              { status: 400 },
+            );
+          }
+          system = insightsSystemPrompt(attempts, lessons);
+        } else {
+          const retrievalQuery = `${data.question}\n${data.userAnswer ?? ""}`;
+          const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery);
+          system =
+            data.mode === "mark"
+              ? markSystemPrompt(sources, lessons, (data.parts ?? []) as MarkPart[])
+              : askSystemPrompt(sources, lessons);
+        }
 
         const userContent =
-          data.mode === "mark"
+          data.mode === "insights"
+            ? "Produce the performance diagnostic now."
+            : data.mode === "mark"
             ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
             : data.question;
 
@@ -154,7 +176,7 @@ export const Route = createFileRoute("/api/study")({
               }
             } finally {
               controller.close();
-              if (full) {
+              if (full && data.mode !== "insights") {
                 await supabase.from("qa_entries").insert({
                   user_id: userId,
                   subject_id: data.subjectId,
