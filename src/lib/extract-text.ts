@@ -108,9 +108,9 @@ async function extractPdfSmart(
     const page = await doc.getPage(pageNumber);
     const content = await page.getTextContent();
     const text = layoutPageText(
-      content.items
-        .filter((item): item is { str: string; transform: number[] } => "str" in item)
-        .map((item) => ({ str: item.str, transform: item.transform as number[] })),
+      content.items.flatMap((item) =>
+        "str" in item ? [{ str: item.str, transform: item.transform as number[] }] : [],
+      ),
     );
     pages[pageNumber - 1] = text;
     if (text.replace(/\s/g, "").length < MIN_PAGE_CHARS) scanned.push(pageNumber);
