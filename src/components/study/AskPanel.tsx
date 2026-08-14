@@ -18,10 +18,14 @@ export function AskPanel({ subjectId }: { subjectId: string }) {
   function submit() {
     const q = question.trim();
     if (q.length < 2 || running) return;
-    jobs.startRun(key, { subjectId, mode: "ask", question: q });
+    const history = turns
+      .filter((t) => t.status === "done" && t.answer)
+      .map((t) => ({ question: t.question, answer: t.answer }));
+    jobs.startRun(key, { subjectId, mode: "ask", question: q, history });
     setQuestion("");
     toast.info("Working — you can switch tabs, the answer keeps generating.");
   }
+
 
   return (
     <div className="space-y-6">
