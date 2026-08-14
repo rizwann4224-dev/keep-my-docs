@@ -289,3 +289,54 @@ ${lessons}
 SOURCE DOCUMENTS:
 ${sources}`;
 }
+
+export type MarkedAttempt = {
+  question: string;
+  user_answer: string | null;
+  response: string;
+  created_at: string;
+};
+
+/** Aggregated strengths / weaknesses across everything the user has had marked. */
+export function insightsSystemPrompt(attempts: MarkedAttempt[], lessons: string): string {
+  const single = attempts.length === 1;
+  const body = attempts
+    .map(
+      (a, i) =>
+        `### ATTEMPT ${i + 1} (${new Date(a.created_at).toISOString().slice(0, 10)})\nQUESTION:\n${a.question}\n\nCANDIDATE ANSWER:\n${a.user_answer?.trim() || "(not provided)"}\n\nMARKER FEEDBACK:\n${a.response}`,
+    )
+    .join("\n\n---\n\n")
+    .slice(0, 160_000);
+
+  return `You are a strict examiner-coach producing a performance diagnostic from a candidate's marked attempts.
+
+RULES:
+- Base every statement on the marked attempts below. Never invent topics that do not appear.
+- Name topics precisely (the actual syllabus topic/standard/section), not vague skills.
+- Be dense and specific. No filler, no motivational language.
+- ${single ? "There is ONE attempt: report on that attempt only, and say the picture will sharpen as more attempts are marked." : `There are ${attempts.length} attempts: AGGREGATE across all of them. Count how many attempts each weakness appears in and rank by frequency and severity, with a recurring-issue flag for anything appearing in 2 or more attempts.`}
+
+OUTPUT EXACTLY THESE SECTIONS (markdown):
+
+# 📈 Performance Overview
+One paragraph: attempts analysed${single ? "" : ", overall accuracy trend"}, average mark where marks are available.
+
+# ⚠️ Weak Areas — Priority Order
+A markdown table: | Topic | Times seen | What goes wrong | Fix |
+Ordered most damaging first.
+
+# ✅ Strong Areas
+Bullets: topic — evidence from the attempts.
+
+# 🔁 Recurring Mistakes
+${single ? "State whether any mistake repeated within this attempt; otherwise say more attempts are needed." : "Bullets for every mistake appearing in 2+ attempts, with the count."}
+
+# 🎯 Study Plan
+3-6 ranked actions targeting the weak areas above.
+
+LESSONS THE USER ALREADY FLAGGED:
+${lessons}
+
+MARKED ATTEMPTS:
+${body}`;
+}
