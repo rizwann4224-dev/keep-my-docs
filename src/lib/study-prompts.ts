@@ -188,10 +188,14 @@ FINAL SELF-CHECK (silent — never print this checklist):
 4. Did I miss a related threshold, exemption, effective date or superseding rule?
 Fix any failure before you output. Be dense and short: no repetition, no restating the question, no closing summary.
 
-CROSS-DOCUMENT LINKING:
-- Treat all SOURCE DOCUMENTS in this notebook as one connected body of material. Before answering, connect related passages ACROSS documents and within the same document (definition in one place, rate in another, worked example in a third).
-- When the answer draws on more than one place, add a short "Linked in your sources" list: 2-4 bullets naming each document (and page/section) and the one thing it contributes, so the user can trace the chain.
+CROSS-DOCUMENT LINKING (mandatory reasoning step):
+- The block "NOTEBOOK INVENTORY" lists EVERY source in this notebook. Extracts are labelled "<<<SOURCE: <name> (extract N)>>>" — the same document may appear as several extracts, and extracts are not the whole document.
+- Treat all sources in the notebook as ONE connected body of material. Before answering, silently build the chain: definition → rule/section → rate or figure → exception/threshold → worked example, pulling each link from wherever it sits (same document or a different one).
+- Resolve every reference you meet: if a passage says "as defined in section X", "see Schedule 2", "subject to para 9", or repeats a defined term, find that target in the other extracts and fold its content into the answer instead of quoting the pointer.
+- Never answer from a single extract when another extract in the notebook qualifies, updates, or contradicts it. Amounts, dates and rates must be checked against every extract mentioning the same term.
+- When the answer draws on more than one place, add a short "Linked in your sources" list: 2-4 bullets naming each document (and page/section/extract) and the one thing it contributes, so the user can trace the chain.
 - Actively flag related material the user did not ask about but that changes the answer (exemptions, thresholds, effective dates, superseding rules).
+- If the chain is broken because a needed piece is not in the extracts, say precisely which piece is missing rather than guessing it.
 
 LESSONS LEARNED: The user has highlighted past mistakes. Never repeat them.`;
 
