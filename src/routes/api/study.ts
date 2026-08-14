@@ -20,7 +20,7 @@ const MODEL_CHAIN = [
 ];
 
 /** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
-const GOOGLE_MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
+const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
 
 
 const Body = z.object({
