@@ -63,7 +63,8 @@ export const Route = createFileRoute("/api/study")({
             .order("created_at", { ascending: true }),
         ]);
 
-        const sources = buildSourceBlock(docs ?? []);
+        const retrievalQuery = `${data.question}\n${data.userAnswer ?? ""}`;
+        const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery);
         const lessons = buildLessonsBlock(notes ?? []);
         const system =
           data.mode === "mark"
@@ -75,27 +76,47 @@ export const Route = createFileRoute("/api/study")({
             ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
             : data.question;
 
-        const upstream = await fetch(GATEWAY, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-pro",
-            temperature: 0,
-            top_p: 0.1,
-            stream: true,
-            messages: [
-              { role: "system", content: system },
-              { role: "user", content: userContent },
-            ],
-          }),
-        });
+        let upstream: Response | null = null;
+        let lastStatus = 0;
+        for (const model of MODEL_CHAIN) {
+          const res = await fetch(GATEWAY, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model,
+              temperature: 0,
+              top_p: 0.1,
+              stream: true,
+              messages: [
+                { role: "system", content: system },
+                { role: "user", content: userContent },
+              ],
+            }),
+          });
+          lastStatus = res.status;
+          if (res.ok && res.body) {
+            upstream = res;
+            break;
+          }
+          // Budget or rate limit on this model — try the next, cheaper one.
+          if (res.status !== 402 && res.status !== 429) break;
+          await res.body?.cancel();
+          if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
+        }
 
-        if (upstream.status === 429)
-          return new Response("Rate limit reached. Try again in a moment.", { status: 429 });
-        if (upstream.status === 402)
-          return new Response("AI credits exhausted. Please top up.", { status: 402 });
-        if (!upstream.ok || !upstream.body)
-          return new Response(`AI request failed (${upstream.status})`, { status: 502 });
+        if (!upstream) {
+          if (lastStatus === 429)
+            return new Response("The AI is busy right now — try again in a few seconds.", {
+              status: 429,
+            });
+          if (lastStatus === 402)
+            return new Response(
+              "Your workspace has used its AI allowance for today. It refreshes automatically — or add credits in workspace billing to keep going without waiting.",
+              { status: 402 },
+            );
+          return new Response(`AI request failed (${lastStatus})`, { status: 502 });
+        }
+
 
         const encoder = new TextEncoder();
         const decoder = new TextDecoder();
