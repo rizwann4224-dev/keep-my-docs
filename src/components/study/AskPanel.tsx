@@ -1,13 +1,22 @@
 import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import * as jobs from "@/lib/study-jobs";
+import { supabase } from "@/integrations/supabase/client";
+import { exportAskToPdf } from "@/lib/export-pdf";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
 import { LessonCapture } from "@/components/study/LessonCapture";
 import { ThinkingStatus } from "@/components/study/ThinkingStatus";
 
-export function AskPanel({ subjectId }: { subjectId: string }) {
+export function AskPanel({
+  subjectId,
+  subjectName = "Notebook",
+}: {
+  subjectId: string;
+  subjectName?: string;
+}) {
   const [question, setQuestion] = useState("");
   const key = `${subjectId}:ask`;
 
@@ -15,16 +24,38 @@ export function AskPanel({ subjectId }: { subjectId: string }) {
   const turns = jobs.getTurns(key);
   const running = jobs.isRunning(key);
 
+  // Earlier asks are saved to History; pull them back so the model still knows
+  // what was asked before, even after a tab switch or reload.
+  const { data: saved = [] } = useQuery({
+    queryKey: ["ask-history", subjectId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("qa_entries")
+        .select("question, response, created_at")
+        .eq("subject_id", subjectId)
+        .eq("mode", "ask")
+        .order("created_at", { ascending: false })
+        .limit(6);
+      if (error) throw error;
+      return (data ?? []).reverse() as { question: string; response: string }[];
+    },
+  });
+
   function submit() {
     const q = question.trim();
     if (q.length < 2 || running) return;
-    const history = turns
+    const live = turns
       .filter((t) => t.status === "done" && t.answer)
       .map((t) => ({ question: t.question, answer: t.answer }));
-    jobs.startRun(key, { subjectId, mode: "ask", question: q, history });
+    const past = saved
+      .filter((entry) => !live.some((t) => t.question === entry.question))
+      .map((entry) => ({ question: entry.question, answer: entry.response }));
+    jobs.startRun(key, { subjectId, mode: "ask", question: q, history: [...past, ...live] });
     setQuestion("");
     toast.info("Working — you can switch tabs, the answer keeps generating.");
   }
+
+
 
 
   return (
