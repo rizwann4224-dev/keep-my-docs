@@ -280,11 +280,12 @@ function WorkspacePage() {
                 <TabsTrigger value="performance">Strengths &amp; weak areas</TabsTrigger>
                 <TabsTrigger value="documents">Sources</TabsTrigger>
                 <TabsTrigger value="lessons">Lessons learned</TabsTrigger>
-                <TabsTrigger value="history">History</TabsTrigger>
+                <TabsTrigger value="history">Ask history</TabsTrigger>
+                <TabsTrigger value="mark-history">Marking history</TabsTrigger>
               </TabsList>
               <div className="mt-6">
                 <TabsContent value="ask">
-                  <AskPanel subjectId={active.id} />
+                  <AskPanel subjectId={active.id} subjectName={active.name} />
                 </TabsContent>
                 <TabsContent value="mark">
                   <MarkPanel subjectId={active.id} subjectName={active.name} />
