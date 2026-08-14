@@ -29,6 +29,10 @@ const Body = z.object({
   question: z.string().min(1),
   userAnswer: z.string().optional(),
   parts: z.array(z.enum(["feedback", "marks", "suggested", "recommendations"])).optional(),
+  history: z
+    .array(z.object({ question: z.string(), answer: z.string() }))
+    .max(20)
+    .optional(),
 });
 
 
@@ -102,6 +106,16 @@ export const Route = createFileRoute("/api/study")({
             ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
             : data.question;
 
+        // Ask mode keeps the thread's earlier turns so follow-ups ("and for the
+        // next year?", "rephrase that") resolve against the previous question.
+        const priorMessages =
+          data.mode === "ask"
+            ? (data.history ?? []).slice(-8).flatMap((turn) => [
+                { role: "user" as const, content: turn.question },
+                { role: "assistant" as const, content: turn.answer.slice(0, 6000) },
+              ])
+            : [];
+
         let upstream: Response | null = null;
         let source: "gateway" | "google" = "gateway";
         let lastStatus = 0;
@@ -116,6 +130,7 @@ export const Route = createFileRoute("/api/study")({
               stream: true,
               messages: [
                 { role: "system", content: system },
+                ...priorMessages,
                 { role: "user", content: userContent },
               ],
             }),
@@ -144,7 +159,13 @@ export const Route = createFileRoute("/api/study")({
                   headers: { "Content-Type": "application/json", "x-goog-api-key": googleKey },
                   body: JSON.stringify({
                     systemInstruction: { parts: [{ text: system }] },
-                    contents: [{ role: "user", parts: [{ text: userContent }] }],
+                    contents: [
+                      ...priorMessages.map((m) => ({
+                        role: m.role === "assistant" ? "model" : "user",
+                        parts: [{ text: m.content }],
+                      })),
+                      { role: "user", parts: [{ text: userContent }] },
+                    ],
                     generationConfig: { temperature: 0, topP: 0.1 },
                   }),
                 },

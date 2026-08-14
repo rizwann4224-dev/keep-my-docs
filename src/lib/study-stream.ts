@@ -7,6 +7,8 @@ export type StudyRequest = {
   question: string;
   userAnswer?: string | undefined;
   parts?: MarkPart[] | undefined;
+  /** Prior turns in this Ask thread, so follow-up questions keep their context. */
+  history?: { question: string; answer: string }[] | undefined;
 };
 
 /** Streams the model's answer token-by-token; resolves with the full text. */
