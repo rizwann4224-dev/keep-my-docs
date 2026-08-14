@@ -300,7 +300,10 @@ function WorkspacePage() {
                   <LessonsPanel subjectId={active.id} />
                 </TabsContent>
                 <TabsContent value="history">
-                  <HistoryPanel subjectId={active.id} />
+                  <HistoryPanel subjectId={active.id} mode="ask" />
+                </TabsContent>
+                <TabsContent value="mark-history">
+                  <HistoryPanel subjectId={active.id} mode="mark" />
                 </TabsContent>
               </div>
             </Tabs>
