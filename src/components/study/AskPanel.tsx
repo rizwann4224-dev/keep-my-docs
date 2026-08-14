@@ -96,7 +96,25 @@ export function AskPanel({
       </div>
 
       {turns.length > 0 && !running && (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              try {
+                exportAskToPdf({
+                  notebook: subjectName,
+                  turns: turns
+                    .filter((t) => t.answer)
+                    .map((t) => ({ question: t.question, answer: t.answer })),
+                });
+              } catch {
+                toast.error("Could not build the PDF");
+              }
+            }}
+          >
+            Export to PDF
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => jobs.clear(key)}>
             Clear thread
           </Button>
