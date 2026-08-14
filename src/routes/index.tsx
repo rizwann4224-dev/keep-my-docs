@@ -267,8 +267,9 @@ function WorkspacePage() {
                 // Leaving Ask clears the live thread — every answer is kept in History.
                 if (tab === "ask" && next !== "ask") jobs.clear(`${active.id}:ask`);
                 setTab(next);
-                if (next === "history" || next === "performance") {
+                if (next === "history" || next === "mark-history" || next === "performance" || next === "ask") {
                   queryClient.invalidateQueries({ queryKey: ["qa", active.id] });
+                  queryClient.invalidateQueries({ queryKey: ["ask-history", active.id] });
                   queryClient.invalidateQueries({ queryKey: ["marked-count", active.id] });
                 }
               }}
@@ -280,11 +281,12 @@ function WorkspacePage() {
                 <TabsTrigger value="performance">Strengths &amp; weak areas</TabsTrigger>
                 <TabsTrigger value="documents">Sources</TabsTrigger>
                 <TabsTrigger value="lessons">Lessons learned</TabsTrigger>
-                <TabsTrigger value="history">History</TabsTrigger>
+                <TabsTrigger value="history">Ask history</TabsTrigger>
+                <TabsTrigger value="mark-history">Marking history</TabsTrigger>
               </TabsList>
               <div className="mt-6">
                 <TabsContent value="ask">
-                  <AskPanel subjectId={active.id} />
+                  <AskPanel subjectId={active.id} subjectName={active.name} />
                 </TabsContent>
                 <TabsContent value="mark">
                   <MarkPanel subjectId={active.id} subjectName={active.name} />
@@ -299,7 +301,10 @@ function WorkspacePage() {
                   <LessonsPanel subjectId={active.id} />
                 </TabsContent>
                 <TabsContent value="history">
-                  <HistoryPanel subjectId={active.id} />
+                  <HistoryPanel subjectId={active.id} mode="ask" />
+                </TabsContent>
+                <TabsContent value="mark-history">
+                  <HistoryPanel subjectId={active.id} mode="mark" />
                 </TabsContent>
               </div>
             </Tabs>
