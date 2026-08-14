@@ -11,18 +11,34 @@ import {
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
-async function callGateway(apiKey: string, body: unknown) {
+async function callGateway(apiKey: string, body: Record<string, unknown>) {
   const res = await fetch(GATEWAY, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (res.status === 429) throw new Error("Rate limit reached. Try again in a moment.");
-  if (res.status === 402) throw new Error("AI credits exhausted. Please top up.");
+  if (res.status === 402) {
+    // Shared allowance exhausted — retry through the project's own Gemini key.
+    const googleKey = process.env["GEMINI_API_KEY"];
+    if (googleKey) {
+      const fallback = await fetch(GATEWAY, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${googleKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (fallback.ok) {
+        const json = (await fallback.json()) as { choices?: { message?: { content?: string } }[] };
+        return json.choices?.[0]?.message?.content ?? "";
+      }
+    }
+    throw new Error("AI is temporarily unavailable. Please try again.");
+  }
   if (!res.ok) throw new Error(`AI request failed (${res.status})`);
   const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   return json.choices?.[0]?.message?.content ?? "";
 }
+
 
 export const runStudyQuery = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
