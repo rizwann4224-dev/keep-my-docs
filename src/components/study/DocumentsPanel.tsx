@@ -1,10 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { extractText } from "@/lib/extract-text";
-import { uploadWithProgress, formatSpeed } from "@/lib/upload";
+import * as uploadJobs from "@/lib/upload-jobs";
 import { Progress } from "@/components/ui/progress";
 import { transcribePages } from "@/lib/study.functions";
 import { Button } from "@/components/ui/button";
@@ -27,22 +26,16 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-type UploadState = {
-  name: string;
-  size: number;
-  percent: number;
-  speed: string;
-  stage: string;
-};
-
 export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userId: string }) {
   const queryClient = useQueryClient();
   const ocrCall = useServerFn(transcribePages);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [uploads, setUploads] = useState<UploadState[]>([]);
   const [search, setSearch] = useState("");
+
+  useSyncExternalStore(uploadJobs.subscribe, uploadJobs.getJobs, uploadJobs.getJobs);
+  const uploads = uploadJobs.jobsFor(subjectId);
+  const busy = uploads.some((u) => u.status === "active");
 
   const { data: documents = [], isLoading } = useQuery({
     queryKey: ["documents", subjectId],
@@ -57,6 +50,18 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
     },
   });
 
+  // Uploads finish in the background store; refresh the list whenever one lands.
+  useEffect(() => {
+    function onChanged(event: Event) {
+      if ((event as CustomEvent<string>).detail === subjectId) {
+        queryClient.invalidateQueries({ queryKey: ["documents", subjectId] });
+        queryClient.invalidateQueries({ queryKey: ["subject-doc-counts"] });
+      }
+    }
+    window.addEventListener("documents-changed", onChanged);
+    return () => window.removeEventListener("documents-changed", onChanged);
+  }, [subjectId, queryClient]);
+
   const remove = useMutation({
     mutationFn: async (doc: DocumentRow) => {
       await supabase.storage.from("documents").remove([doc.storage_path]);
@@ -70,79 +75,12 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
     onError: () => toast.error("Could not delete this document"),
   });
 
-  function setUpload(name: string, patch: Partial<UploadState>) {
-    setUploads((prev) =>
-      prev.map((u) => (u.name === name ? { ...u, ...patch } : u)),
-    );
-  }
-
-  async function uploadOne(file: File): Promise<boolean> {
-    const safeName = file.name.replace(/[^\w.\- ]+/g, "_");
-    const path = `${userId}/${crypto.randomUUID()}-${safeName}`;
-
-    // Upload and text extraction run at the same time — the network transfer no
-    // longer waits for parsing/OCR to finish.
-    const uploadTask = uploadWithProgress("documents", path, file, (p) =>
-      setUpload(file.name, {
-        percent: p.percent,
-        speed: formatSpeed(p.bytesPerSecond),
-        stage: p.percent >= 100 ? "Processing…" : "Uploading",
-      }),
-    );
-    const extractTask = extractText(
-      file,
-      async (images) => (await ocrCall({ data: { images } })).text,
-      (message) => setUpload(file.name, { stage: message }),
-    );
-
-    let text = "";
-    try {
-      [, text] = await Promise.all([uploadTask, extractTask]);
-    } catch (error) {
-      await extractTask.catch(() => "");
-      toast.error(
-        `Upload failed for "${file.name}"${error instanceof Error ? `: ${error.message}` : ""}`,
-      );
-      return false;
-    }
-
-    const { error: insertError } = await supabase.from("documents").insert({
-      user_id: userId,
-      subject_id: subjectId,
-      name: file.name,
-      storage_path: path,
-      mime_type: file.type || null,
-      size_bytes: file.size,
-      extracted_text: text || null,
-    });
-    if (insertError) {
-      await supabase.storage.from("documents").remove([path]);
-      toast.error(`Could not save "${file.name}"`);
-      return false;
-    }
-    if (!text) toast.warning(`"${file.name}" stored, but no readable text was found in it.`);
-    return true;
-  }
-
-  async function uploadFiles(files: FileList | File[]) {
+  function startUpload(files: FileList | File[]) {
     const list = Array.from(files);
     if (list.length === 0) return;
-
-    setUploads(
-      list.map((f) => ({ name: f.name, percent: 0, speed: "", stage: "Queued", size: f.size })),
+    uploadJobs.startUploads(subjectId, userId, list, async (images) =>
+      (await ocrCall({ data: { images } })).text,
     );
-    setBusy(`Uploading ${list.length} file${list.length > 1 ? "s" : ""}…`);
-
-    // Files upload in parallel instead of one after another.
-    const results = await Promise.all(list.map((file) => uploadOne(file)));
-    const saved = results.filter(Boolean).length;
-
-    setBusy(null);
-    setUploads([]);
-    if (saved > 0) {
-      toast.success(`${saved} source${saved > 1 ? "s" : ""} added`);
-      queryClient.invalidateQueries({ queryKey: ["documents", subjectId] });
-    }
   }
 
   async function openDocument(doc: DocumentRow, download: boolean) {
@@ -171,7 +109,7 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
-          void uploadFiles(e.dataTransfer.files);
+          startUpload(e.dataTransfer.files);
         }}
         className={`rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
           dragging ? "border-primary bg-accent" : "border-border bg-card"
@@ -179,12 +117,12 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
       >
         <h2 className="text-base font-semibold text-foreground">Add sources</h2>
         <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
-          PDF, DOCX, TXT, Markdown and images. Scanned PDFs without a text layer are read with OCR
-          automatically. No size limit.
+          PDF, DOCX, TXT, Markdown and images. Scanned pages are read with OCR automatically. No
+          size limit — uploads keep running while you use the rest of the notebook.
         </p>
         <div className="mt-4">
-          <Button onClick={() => inputRef.current?.click()} disabled={!!busy}>
-            {busy ?? "Choose files"}
+          <Button onClick={() => inputRef.current?.click()}>
+            {busy ? "Add more files" : "Choose files"}
           </Button>
         </div>
         <input
@@ -193,27 +131,43 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
           multiple
           className="hidden"
           onChange={(e) => {
-            if (e.target.files) void uploadFiles(e.target.files);
+            if (e.target.files) startUpload(e.target.files);
             e.target.value = "";
           }}
         />
         {uploads.length > 0 && (
           <ul className="mx-auto mt-6 max-w-lg space-y-3 text-left">
             {uploads.map((u) => (
-              <li key={u.name} className="rounded-lg border border-border bg-background p-3">
+              <li key={u.id} className="rounded-lg border border-border bg-background p-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="truncate text-sm font-medium text-foreground">{u.name}</span>
                   <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {u.percent}%{u.speed ? ` · ${u.speed}` : ""}
+                    {u.status === "done"
+                      ? "Done"
+                      : `${u.percent}%${u.speed ? ` · ${u.speed}` : ""}`}
                   </span>
                 </div>
                 <Progress value={u.percent} className="mt-2 h-1.5" />
-                <p className="mt-1.5 truncate text-xs text-muted-foreground">
+                <p
+                  className={`mt-1.5 truncate text-xs ${
+                    u.status === "error" ? "text-destructive" : "text-muted-foreground"
+                  }`}
+                >
                   {u.stage} · {formatSize(u.size)}
                 </p>
               </li>
             ))}
           </ul>
+        )}
+        {uploads.length > 0 && !busy && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-3"
+            onClick={() => uploadJobs.clearFinished(subjectId)}
+          >
+            Clear finished
+          </Button>
         )}
       </section>
 
