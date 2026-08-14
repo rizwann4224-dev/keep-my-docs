@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
 import { LessonCapture } from "@/components/study/LessonCapture";
+import { ThinkingStatus } from "@/components/study/ThinkingStatus";
 
 export function AskPanel({ subjectId }: { subjectId: string }) {
   const [question, setQuestion] = useState("");
@@ -45,7 +46,7 @@ export function AskPanel({ subjectId }: { subjectId: string }) {
               {turn.answer ? (
                 <Markdown>{turn.answer}</Markdown>
               ) : turn.status === "error" ? null : (
-                <p className="text-sm text-muted-foreground">Searching your sources…</p>
+                <ThinkingStatus />
               )}
               {turn.status === "streaming" && turn.answer && (
                 <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-foreground align-text-bottom" />

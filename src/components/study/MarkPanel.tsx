@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
 import { LessonCapture } from "@/components/study/LessonCapture";
+import { ThinkingStatus } from "@/components/study/ThinkingStatus";
 
 const OPTIONS: { id: MarkPart; label: string; hint: string }[] = [
   { id: "feedback", label: "Item-by-item feedback", hint: "🔍 detailed marking commentary" },
@@ -128,7 +129,7 @@ export function MarkPanel({ subjectId }: { subjectId: string }) {
           ) : latest.status === "error" ? (
             <p className="text-sm text-destructive">{latest.error ?? "Something went wrong"}</p>
           ) : (
-            <p className="text-sm text-muted-foreground">Marking against your sources…</p>
+            <ThinkingStatus />
           )}
           {latest.status === "done" && <LessonCapture subjectId={subjectId} />}
         </div>

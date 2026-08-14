@@ -13,9 +13,9 @@ const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 /** Tried in order — if the budget for one model is exhausted, fall back to a cheaper one. */
 const MODEL_CHAIN = [
+  "google/gemini-3.6-flash",
   "google/gemini-2.5-flash",
   "google/gemini-2.5-flash-lite",
-  "google/gemini-2.5-pro",
 ];
 
 const Body = z.object({

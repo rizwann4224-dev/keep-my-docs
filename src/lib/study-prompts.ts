@@ -36,18 +36,33 @@ export function buildRelevantSourceBlock(
   const total = usable.reduce((n, d) => n + (d.extracted_text ?? "").length, 0);
   if (total <= budget) return buildSourceBlock(usable);
 
+  const lowerQuery = query.toLowerCase();
   const terms = Array.from(
     new Set(
-      query
-        .toLowerCase()
+      lowerQuery
         .split(/[^a-z0-9%.]+/)
         .filter((w) => w.length > 2 && !STOP.has(w)),
     ),
   );
+  // Adjacent word pairs from the question — a chunk containing the exact phrase
+  // is far more likely to hold the answer than one with the words scattered.
+  const bigrams: string[] = [];
+  for (let i = 0; i < terms.length - 1; i++) bigrams.push(`${terms[i]} ${terms[i + 1]}`);
 
-  const CHUNK = 4_000;
+  const CHUNK = 2_500;
   type Chunk = { doc: string; idx: number; text: string; score: number };
   const chunks: Chunk[] = [];
+
+  const count = (haystack: string, needle: string) => {
+    let n = 0;
+    let from = 0;
+    for (;;) {
+      const at = haystack.indexOf(needle, from);
+      if (at === -1) return n;
+      n += 1;
+      from = at + needle.length;
+    }
+  };
 
   for (const doc of usable) {
     const text = doc.extracted_text ?? "";
@@ -55,33 +70,51 @@ export function buildRelevantSourceBlock(
       const slice = text.slice(i, i + CHUNK);
       const lower = slice.toLowerCase();
       let score = 0;
+      let distinct = 0;
       for (const term of terms) {
-        let from = 0;
-        for (;;) {
-          const at = lower.indexOf(term, from);
-          if (at === -1) break;
-          score += 1;
-          from = at + term.length;
-        }
+        const hits = count(lower, term);
+        if (hits > 0) distinct += 1;
+        score += Math.min(hits, 6);
       }
+      // Reward chunks that cover MANY of the question's terms, not one term repeated.
+      score += distinct * distinct * 2;
+      for (const phrase of bigrams) score += count(lower, phrase) * 12;
+      // Numeric/tabular passages usually carry the rate, threshold or figure asked for.
+      if (/\d+(\.\d+)?\s*%/.test(slice)) score += 6;
+      if (/\b(rate|threshold|limit|section|para|schedule|table)\b/i.test(slice)) score += 3;
       chunks.push({ doc: doc.name, idx: i / CHUNK, text: slice, score });
     }
   }
 
-  chunks.sort((a, b) => b.score - a.score);
-  const picked: Chunk[] = [];
-  let used = 0;
-  for (const chunk of chunks) {
-    if (used + chunk.text.length > budget) continue;
-    picked.push(chunk);
-    used += chunk.text.length;
-    if (used >= budget) break;
-  }
-  // Always include the opening of each document for context/definitions.
-  if (picked.length === 0) return buildSourceBlock(usable);
+  const byKey = new Map(chunks.map((c) => [`${c.doc}#${c.idx}`, c]));
+  const ranked = [...chunks].sort((a, b) => b.score - a.score).filter((c) => c.score > 0);
 
-  picked.sort((a, b) => (a.doc === b.doc ? a.idx - b.idx : a.doc.localeCompare(b.doc)));
-  return picked
+  const picked = new Map<string, Chunk>();
+  let used = 0;
+
+  const take = (chunk: Chunk | undefined) => {
+    if (!chunk) return;
+    const key = `${chunk.doc}#${chunk.idx}`;
+    if (picked.has(key) || used + chunk.text.length > budget) return;
+    picked.set(key, chunk);
+    used += chunk.text.length;
+  };
+
+  // Opening of every document first: definitions, contents and headings give context.
+  for (const doc of usable) take(byKey.get(`${doc.name}#0`));
+  // Then the best-matching passages, each with its neighbours so a figure is never
+  // separated from the sentence or table row that qualifies it.
+  for (const chunk of ranked) {
+    if (used >= budget) break;
+    take(chunk);
+    take(byKey.get(`${chunk.doc}#${chunk.idx - 1}`));
+    take(byKey.get(`${chunk.doc}#${chunk.idx + 1}`));
+  }
+
+  if (picked.size === 0) return buildSourceBlock(usable);
+
+  return [...picked.values()]
+    .sort((a, b) => (a.doc === b.doc ? a.idx - b.idx : a.doc.localeCompare(b.doc)))
     .map(
       (c) =>
         `<<<SOURCE: ${c.doc} (extract ${c.idx + 1})>>>\n${c.text}\n<<<END EXTRACT>>>`,
@@ -112,6 +145,13 @@ PRECISION RULES:
 - Cite the page or section marker when the source shows one, e.g. [Source: Tax Manual, Page 42] or [Source: ISA 240, para 12].
 - If two sources disagree, say so explicitly and give both values with their citations, then state which one governs and why.
 - If something is only partially covered, answer the covered part precisely and mark the rest "Not found in your sources."
+
+FINAL SELF-CHECK (silent — never print this checklist):
+1. Does the first line literally answer what was asked (the figure/name/date/yes-no)?
+2. Is every number and reference copied character-for-character from a source line?
+3. Does each claim carry a citation, and is anything unsupported labelled [External reference]?
+4. Did I miss a related threshold, exemption, effective date or superseding rule?
+Fix any failure before you output. Be dense and short: no repetition, no restating the question, no closing summary.
 
 CROSS-DOCUMENT LINKING:
 - Treat all SOURCE DOCUMENTS in this notebook as one connected body of material. Before answering, connect related passages ACROSS documents and within the same document (definition in one place, rate in another, worked example in a third).
