@@ -267,8 +267,9 @@ function WorkspacePage() {
                 // Leaving Ask clears the live thread — every answer is kept in History.
                 if (tab === "ask" && next !== "ask") jobs.clear(`${active.id}:ask`);
                 setTab(next);
-                if (next === "history" || next === "performance") {
+                if (next === "history" || next === "mark-history" || next === "performance" || next === "ask") {
                   queryClient.invalidateQueries({ queryKey: ["qa", active.id] });
+                  queryClient.invalidateQueries({ queryKey: ["ask-history", active.id] });
                   queryClient.invalidateQueries({ queryKey: ["marked-count", active.id] });
                 }
               }}
