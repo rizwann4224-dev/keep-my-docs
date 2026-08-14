@@ -1,85 +1,71 @@
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { streamStudyQuery } from "@/lib/study-stream";
+import * as jobs from "@/lib/study-jobs";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
 import { LessonCapture } from "@/components/study/LessonCapture";
 
-type Turn = { question: string; answer: string };
-
 export function AskPanel({ subjectId }: { subjectId: string }) {
   const [question, setQuestion] = useState("");
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [streaming, setStreaming] = useState<Turn | null>(null);
+  const key = `${subjectId}:ask`;
 
-  const mutation = useMutation({
-    mutationFn: async (q: string) => {
-      setStreaming({ question: q, answer: "" });
-      return streamStudyQuery({ subjectId, mode: "ask", question: q }, (full) =>
-        setStreaming({ question: q, answer: full }),
-      );
-    },
-    onSuccess: (answer, q) => {
-      setTurns((prev) => [...prev, { question: q, answer }]);
-      setStreaming(null);
-      setQuestion("");
-    },
-    onError: (e: unknown) => {
-      setStreaming(null);
-      toast.error(e instanceof Error ? e.message : "Could not answer that");
-    },
-  });
+  useSyncExternalStore(jobs.subscribe, jobs.getSnapshot, jobs.getSnapshot);
+  const turns = jobs.getTurns(key);
+  const running = jobs.isRunning(key);
 
   function submit() {
     const q = question.trim();
-    if (q.length < 2 || mutation.isPending) return;
-    mutation.mutate(q);
+    if (q.length < 2 || running) return;
+    jobs.startRun(key, { subjectId, mode: "ask", question: q });
+    setQuestion("");
+    toast.info("Working — you can switch tabs, the answer keeps generating.");
   }
 
   return (
     <div className="space-y-6">
-      {turns.length === 0 && !mutation.isPending && (
+      {turns.length === 0 && (
         <div className="rounded-xl border border-border bg-card p-8 text-center">
           <h2 className="text-base font-semibold text-foreground">Ask anything about your sources</h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
             You get the direct answer first — a rate, a figure, a name, a rule — then only the
-            supporting detail, cited from your documents.
+            supporting detail, cited from your documents. Answers keep generating in the background
+            if you move around the app.
           </p>
         </div>
       )}
 
       <div className="space-y-5">
-        {turns.map((turn, i) => (
-          <div key={i} className="space-y-3">
+        {turns.map((turn) => (
+          <div key={turn.id} className="space-y-3">
             <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-4 py-2 text-sm text-primary-foreground">
               {turn.question}
             </p>
             <div className="rounded-xl border border-border bg-card p-5">
-              <Markdown>{turn.answer}</Markdown>
-              <LessonCapture subjectId={subjectId} />
+              {turn.answer ? (
+                <Markdown>{turn.answer}</Markdown>
+              ) : turn.status === "error" ? null : (
+                <p className="text-sm text-muted-foreground">Searching your sources…</p>
+              )}
+              {turn.status === "streaming" && turn.answer && (
+                <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-foreground align-text-bottom" />
+              )}
+              {turn.status === "error" && (
+                <p className="text-sm text-destructive">{turn.error ?? "Something went wrong"}</p>
+              )}
+              {turn.status === "done" && <LessonCapture subjectId={subjectId} />}
             </div>
           </div>
         ))}
-        {streaming && (
-          <div className="space-y-3">
-            <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-4 py-2 text-sm text-primary-foreground">
-              {streaming.question}
-            </p>
-            <div className="rounded-xl border border-border bg-card p-5">
-              {streaming.answer ? (
-                <Markdown>{streaming.answer}</Markdown>
-              ) : (
-                <p className="text-sm text-muted-foreground">Searching your sources…</p>
-              )}
-              {streaming.answer && (
-                <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-foreground align-text-bottom" />
-              )}
-            </div>
-          </div>
-        )}
       </div>
+
+      {turns.length > 0 && !running && (
+        <div className="flex justify-end">
+          <Button variant="ghost" size="sm" onClick={() => jobs.clear(key)}>
+            Clear thread
+          </Button>
+        </div>
+      )}
 
       <div className="sticky bottom-4 rounded-xl border border-border bg-card p-3 shadow-sm">
         <Textarea
@@ -95,8 +81,8 @@ export function AskPanel({ subjectId }: { subjectId: string }) {
           className="min-h-20 resize-none border-0 focus-visible:ring-0"
         />
         <div className="flex justify-end">
-          <Button onClick={submit} disabled={mutation.isPending || question.trim().length < 2}>
-            {mutation.isPending ? "Thinking…" : "Ask"}
+          <Button onClick={submit} disabled={running || question.trim().length < 2}>
+            {running ? "Thinking…" : "Ask"}
           </Button>
         </div>
       </div>

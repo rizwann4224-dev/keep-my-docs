@@ -1,7 +1,10 @@
 // Client-side document text extraction. Browser-only: call from event handlers.
 
-const MAX_CHARS = 400_000;
-const OCR_MAX_PAGES = 20;
+const MAX_CHARS = 1_200_000;
+const OCR_MAX_PAGES = 80;
+const OCR_BATCH = 4;
+/** A text-layer page with fewer usable characters than this is treated as scanned. */
+const MIN_PAGE_CHARS = 120;
 
 export type OcrFn = (images: string[]) => Promise<string>;
 
@@ -14,13 +17,7 @@ export async function extractText(
 
   try {
     if (name.endsWith(".pdf") || file.type === "application/pdf") {
-      const text = await extractPdf(file);
-      if (text.replace(/\[Page \d+\]/g, "").trim().length > 200 || !ocr) {
-        return text.slice(0, MAX_CHARS);
-      }
-      onProgress?.(`Scanned PDF — reading "${file.name}" with OCR…`);
-      const ocrText = await ocrPdf(file, ocr);
-      return (ocrText || text).slice(0, MAX_CHARS);
+      return await extractPdfSmart(file, ocr, onProgress);
     }
     if (name.endsWith(".docx")) {
       const mammoth = await import("mammoth/mammoth.browser.js");
@@ -61,47 +58,108 @@ async function loadPdf(file: File) {
   return pdfjs.getDocument({ data }).promise;
 }
 
-async function extractPdf(file: File): Promise<string> {
-  const doc = await loadPdf(file);
-  const parts: string[] = [];
+/**
+ * Layout-aware page text: items are grouped into lines by their y position and
+ * ordered left-to-right, so tables, headings and numbered clauses survive
+ * instead of collapsing into one blurred paragraph.
+ */
+function layoutPageText(items: { str: string; transform: number[] }[]): string {
+  const lines: { y: number; parts: { x: number; str: string }[] }[] = [];
 
-  for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
-    const page = await doc.getPage(pageNumber);
-    const content = await page.getTextContent();
-    const text = content.items
-      .map((item) => ("str" in item ? item.str : ""))
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (text) parts.push(`[Page ${pageNumber}] ${text}`);
-    if (parts.join("\n").length > MAX_CHARS) break;
+  for (const item of items) {
+    if (!item.str || !item.str.trim()) continue;
+    const x = item.transform[4] ?? 0;
+    const y = Math.round((item.transform[5] ?? 0) * 2) / 2;
+    const line = lines.find((l) => Math.abs(l.y - y) < 2.5);
+    if (line) line.parts.push({ x, str: item.str });
+    else lines.push({ y, parts: [{ x, str: item.str }] });
   }
 
-  return parts.join("\n\n");
+  return lines
+    .sort((a, b) => b.y - a.y)
+    .map((line) => {
+      const parts = line.parts.sort((a, b) => a.x - b.x);
+      let out = "";
+      let prevEnd = -Infinity;
+      for (const part of parts) {
+        const gap = part.x - prevEnd;
+        if (out && gap > 12) out += "   ";
+        else if (out && !/\s$/.test(out) && !/^\s/.test(part.str)) out += " ";
+        out += part.str;
+        prevEnd = part.x + part.str.length * 4.5;
+      }
+      return out.replace(/[ \t]{4,}/g, "   ").trimEnd();
+    })
+    .filter((line) => line.length > 0)
+    .join("\n");
 }
 
-async function ocrPdf(file: File, ocr: OcrFn): Promise<string> {
+async function extractPdfSmart(
+  file: File,
+  ocr: OcrFn | undefined,
+  onProgress?: (message: string) => void,
+): Promise<string> {
   const doc = await loadPdf(file);
-  const pageCount = Math.min(doc.numPages, OCR_MAX_PAGES);
-  const batches: string[][] = [];
+  const pages: string[] = [];
+  const scanned: number[] = [];
 
-  for (let start = 1; start <= pageCount; start += 5) {
-    const images: string[] = [];
-    for (let n = start; n < start + 5 && n <= pageCount; n += 1) {
-      const page = await doc.getPage(n);
-      const viewport = page.getViewport({ scale: 1.4 });
-      const canvas = document.createElement("canvas");
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) continue;
-      await page.render({ canvas, canvasContext: ctx, viewport }).promise;
-      images.push(canvas.toDataURL("image/jpeg", 0.65));
-    }
-    if (images.length) batches.push(images);
+  for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+    if (pageNumber % 5 === 0) onProgress?.(`Reading page ${pageNumber} of ${doc.numPages}…`);
+    const page = await doc.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const text = layoutPageText(
+      content.items
+        .filter((item): item is { str: string; transform: number[] } => "str" in item)
+        .map((item) => ({ str: item.str, transform: item.transform as number[] })),
+    );
+    pages[pageNumber - 1] = text;
+    if (text.replace(/\s/g, "").length < MIN_PAGE_CHARS) scanned.push(pageNumber);
   }
 
-  // All page batches are transcribed in parallel rather than one after another.
-  const out = await Promise.all(batches.map((images) => ocr(images)));
-  return out.join("\n\n");
+  // Only the pages that genuinely have no text layer are sent to OCR.
+  if (ocr && scanned.length > 0) {
+    const targets = scanned.slice(0, OCR_MAX_PAGES);
+    onProgress?.(`Scanned pages detected — reading ${targets.length} with OCR…`);
+    const batches: number[][] = [];
+    for (let i = 0; i < targets.length; i += OCR_BATCH) {
+      batches.push(targets.slice(i, i + OCR_BATCH));
+    }
+    const results = await Promise.all(
+      batches.map(async (batch) => {
+        const images: string[] = [];
+        for (const pageNumber of batch) {
+          const image = await renderPage(doc, pageNumber);
+          if (image) images.push(image);
+        }
+        if (!images.length) return { batch, text: "" };
+        return { batch, text: await ocr(images) };
+      }),
+    );
+    for (const { batch, text } of results) {
+      if (!text.trim()) continue;
+      // OCR returns the batch as one block; attach it to the first page of the batch.
+      pages[(batch[0] ?? 1) - 1] = text;
+    }
+  }
+
+  const out = pages
+    .map((text, i) => (text?.trim() ? `[Page ${i + 1}]\n${text.trim()}` : ""))
+    .filter(Boolean)
+    .join("\n\n");
+  return out.slice(0, MAX_CHARS);
+}
+
+async function renderPage(
+  doc: Awaited<ReturnType<typeof loadPdf>>,
+  pageNumber: number,
+): Promise<string | null> {
+  const page = await doc.getPage(pageNumber);
+  const viewport = page.getViewport({ scale: 2 });
+  const canvas = document.createElement("canvas");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+  return canvas.toDataURL("image/jpeg", 0.8);
 }

@@ -1,7 +1,6 @@
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { streamStudyQuery } from "@/lib/study-stream";
+import * as jobs from "@/lib/study-jobs";
 import type { MarkPart } from "@/lib/study-prompts";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,27 +18,30 @@ export function MarkPanel({ subjectId }: { subjectId: string }) {
   const [question, setQuestion] = useState("");
   const [userAnswer, setUserAnswer] = useState("");
   const [parts, setParts] = useState<MarkPart[]>(["feedback", "marks", "suggested"]);
-  const [result, setResult] = useState<string | null>(null);
+  const key = `${subjectId}:mark`;
+
+  useSyncExternalStore(jobs.subscribe, jobs.getSnapshot, jobs.getSnapshot);
+  const turns = jobs.getTurns(key);
+  const latest = turns[turns.length - 1];
+  const running = jobs.isRunning(key);
 
   const needsAnswer = parts.includes("feedback") || parts.includes("marks");
 
-  const mutation = useMutation({
-    mutationFn: async () => {
-      setResult("");
-      return streamStudyQuery(
-        {
-          subjectId,
-          mode: "mark",
-          question: question.trim(),
-          userAnswer: userAnswer.trim() || undefined,
-          parts,
-        },
-        (full) => setResult(full),
-      );
-    },
-    onSuccess: (content) => setResult(content),
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not run this"),
-  });
+  function run() {
+    if (running) return;
+    jobs.startRun(
+      key,
+      {
+        subjectId,
+        mode: "mark",
+        question: question.trim(),
+        userAnswer: userAnswer.trim() || undefined,
+        parts,
+      },
+      question.trim(),
+    );
+    toast.info("Marking — this keeps running in the background if you switch tabs.");
+  }
 
   function toggle(id: MarkPart) {
     setParts((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
@@ -107,22 +109,28 @@ export function MarkPanel({ subjectId }: { subjectId: string }) {
 
       <div className="flex justify-end">
         <Button
-          onClick={() => mutation.mutate()}
+          onClick={run}
           disabled={
-            mutation.isPending ||
+            running ||
             parts.length === 0 ||
             question.trim().length < 3 ||
             (needsAnswer && userAnswer.trim().length < 3)
           }
         >
-          {mutation.isPending ? "Working…" : "Generate"}
+          {running ? "Working…" : "Generate"}
         </Button>
       </div>
 
-      {result !== null && (
+      {latest && (
         <div className="rounded-xl border border-border bg-card p-6">
-          <Markdown>{result}</Markdown>
-          <LessonCapture subjectId={subjectId} />
+          {latest.answer ? (
+            <Markdown>{latest.answer}</Markdown>
+          ) : latest.status === "error" ? (
+            <p className="text-sm text-destructive">{latest.error ?? "Something went wrong"}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Marking against your sources…</p>
+          )}
+          {latest.status === "done" && <LessonCapture subjectId={subjectId} />}
         </div>
       )}
     </div>
