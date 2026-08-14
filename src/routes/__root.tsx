@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
 import { SettingsProvider } from "@/hooks/useSettings";
+import { BackgroundWorkGuard } from "@/components/study/BackgroundWorkGuard";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
@@ -135,6 +136,7 @@ function RootComponent() {
       <SettingsProvider>
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
+        <BackgroundWorkGuard />
         <Toaster />
       </SettingsProvider>
     </QueryClientProvider>
