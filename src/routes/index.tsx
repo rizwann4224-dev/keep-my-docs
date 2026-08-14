@@ -13,6 +13,8 @@ import { AskPanel } from "@/components/study/AskPanel";
 import { MarkPanel } from "@/components/study/MarkPanel";
 import { LessonsPanel } from "@/components/study/LessonsPanel";
 import { HistoryPanel } from "@/components/study/HistoryPanel";
+import { PerformancePanel } from "@/components/study/PerformancePanel";
+import * as jobs from "@/lib/study-jobs";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -45,6 +47,7 @@ function WorkspacePage() {
   const [openNotebook, setOpenNotebook] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newSubject, setNewSubject] = useState("");
+  const [tab, setTab] = useState("ask");
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
@@ -258,10 +261,23 @@ function WorkspacePage() {
             <Button variant="ghost" size="sm" onClick={() => setOpenNotebook(null)}>
               ← All notebooks
             </Button>
-            <Tabs defaultValue="ask" className="mt-4">
+            <Tabs
+              value={tab}
+              onValueChange={(next) => {
+                // Leaving Ask clears the live thread — every answer is kept in History.
+                if (tab === "ask" && next !== "ask") jobs.clear(`${active.id}:ask`);
+                setTab(next);
+                if (next === "history" || next === "performance") {
+                  queryClient.invalidateQueries({ queryKey: ["qa", active.id] });
+                  queryClient.invalidateQueries({ queryKey: ["marked-count", active.id] });
+                }
+              }}
+              className="mt-4"
+            >
               <TabsList>
                 <TabsTrigger value="ask">Ask</TabsTrigger>
                 <TabsTrigger value="mark">Answer &amp; marking</TabsTrigger>
+                <TabsTrigger value="performance">Strengths &amp; weak areas</TabsTrigger>
                 <TabsTrigger value="documents">Sources</TabsTrigger>
                 <TabsTrigger value="lessons">Lessons learned</TabsTrigger>
                 <TabsTrigger value="history">History</TabsTrigger>
@@ -272,6 +288,9 @@ function WorkspacePage() {
                 </TabsContent>
                 <TabsContent value="mark">
                   <MarkPanel subjectId={active.id} />
+                </TabsContent>
+                <TabsContent value="performance">
+                  <PerformancePanel subjectId={active.id} />
                 </TabsContent>
                 <TabsContent value="documents">
                   <DocumentsPanel subjectId={active.id} userId={user.id} />
