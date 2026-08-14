@@ -17,16 +17,22 @@ type Entry = {
   created_at: string;
 };
 
-export function HistoryPanel({ subjectId }: { subjectId: string }) {
+export function HistoryPanel({
+  subjectId,
+  mode,
+}: {
+  subjectId: string;
+  mode?: "ask" | "mark";
+}) {
   const { data: entries = [] } = useQuery({
-    queryKey: ["qa", subjectId],
+    queryKey: ["qa", subjectId, mode ?? "all"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("qa_entries")
         .select("id, mode, question, response, created_at")
-        .eq("subject_id", subjectId)
-        .order("created_at", { ascending: false })
-        .limit(50);
+        .eq("subject_id", subjectId);
+      if (mode) query = query.eq("mode", mode);
+      const { data, error } = await query.order("created_at", { ascending: false }).limit(50);
       if (error) throw error;
       return data as Entry[];
     },
@@ -35,7 +41,9 @@ export function HistoryPanel({ subjectId }: { subjectId: string }) {
   if (entries.length === 0) {
     return (
       <p className="rounded-lg border border-border bg-card p-10 text-center text-sm text-muted-foreground">
-        Nothing here yet. Answers and marked attempts are saved automatically.
+        {mode === "mark"
+          ? "No marked attempts yet — they are saved here automatically."
+          : "No questions yet — everything you ask is saved here automatically."}
       </p>
     );
   }
