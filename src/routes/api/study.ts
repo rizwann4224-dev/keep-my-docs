@@ -19,6 +19,10 @@ const MODEL_CHAIN = [
   "google/gemini-2.5-flash-lite",
 ];
 
+/** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
+const GOOGLE_MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
+
+
 const Body = z.object({
   subjectId: z.string().uuid(),
   mode: z.enum(["ask", "mark", "insights"]),
