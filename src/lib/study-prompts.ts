@@ -1,4 +1,4 @@
-export const MAX_CONTEXT_CHARS = 120_000;
+export const MAX_CONTEXT_CHARS = 220_000;
 
 export function buildSourceBlock(
   docs: { name: string; extracted_text: string | null }[],
@@ -33,21 +33,36 @@ export function buildRelevantSourceBlock(
   const usable = docs.filter((d) => (d.extracted_text ?? "").trim().length > 0);
   if (usable.length === 0) return "NO_SOURCE_TEXT_AVAILABLE";
 
+  const inventory = `<<<NOTEBOOK INVENTORY — every source in this notebook>>>\n${usable
+    .map((d, i) => `${i + 1}. ${d.name}`)
+    .join("\n")}\n<<<END INVENTORY>>>\n\n`;
+
   const total = usable.reduce((n, d) => n + (d.extracted_text ?? "").length, 0);
-  if (total <= budget) return buildSourceBlock(usable);
+  if (total <= budget) return inventory + buildSourceBlock(usable);
 
   const lowerQuery = query.toLowerCase();
-  const terms = Array.from(
+  const base = Array.from(
     new Set(
       lowerQuery
         .split(/[^a-z0-9%.]+/)
         .filter((w) => w.length > 2 && !STOP.has(w)),
     ),
   );
+  // Light stemming so "deductions" also matches "deduction"/"deductible".
+  const terms = Array.from(
+    new Set(
+      base.flatMap((w) => {
+        const out = [w];
+        const stem = w.replace(/(ies|ing|ed|es|s)$/i, "");
+        if (stem.length > 3 && stem !== w) out.push(stem);
+        return out;
+      }),
+    ),
+  );
   // Adjacent word pairs from the question — a chunk containing the exact phrase
   // is far more likely to hold the answer than one with the words scattered.
   const bigrams: string[] = [];
-  for (let i = 0; i < terms.length - 1; i++) bigrams.push(`${terms[i]} ${terms[i + 1]}`);
+  for (let i = 0; i < base.length - 1; i++) bigrams.push(`${base[i]} ${base[i + 1]}`);
 
   const CHUNK = 2_500;
   type Chunk = { doc: string; idx: number; text: string; score: number };
@@ -81,7 +96,8 @@ export function buildRelevantSourceBlock(
       for (const phrase of bigrams) score += count(lower, phrase) * 12;
       // Numeric/tabular passages usually carry the rate, threshold or figure asked for.
       if (/\d+(\.\d+)?\s*%/.test(slice)) score += 6;
-      if (/\b(rate|threshold|limit|section|para|schedule|table)\b/i.test(slice)) score += 3;
+      if (/\b(rate|threshold|limit|section|para|schedule|table|definition|means)\b/i.test(slice))
+        score += 3;
       chunks.push({ doc: doc.name, idx: i / CHUNK, text: slice, score });
     }
   }
@@ -93,17 +109,33 @@ export function buildRelevantSourceBlock(
   let used = 0;
 
   const take = (chunk: Chunk | undefined) => {
-    if (!chunk) return;
+    if (!chunk) return false;
     const key = `${chunk.doc}#${chunk.idx}`;
-    if (picked.has(key) || used + chunk.text.length > budget) return;
+    if (picked.has(key) || used + chunk.text.length > budget) return false;
     picked.set(key, chunk);
     used += chunk.text.length;
+    return true;
   };
 
   // Opening of every document first: definitions, contents and headings give context.
   for (const doc of usable) take(byKey.get(`${doc.name}#0`));
-  // Then the best-matching passages, each with its neighbours so a figure is never
-  // separated from the sentence or table row that qualifies it.
+
+  // Cross-document coverage: every source gets its own best-matching passages before
+  // one dense document is allowed to swallow the whole budget. This is what makes
+  // linking work — the rate in one manual and its definition in another both arrive.
+  const perDocQuota = Math.floor((budget * 0.55) / usable.length);
+  for (const doc of usable) {
+    let docUsed = 0;
+    for (const chunk of ranked.filter((c) => c.doc === doc.name)) {
+      if (docUsed >= perDocQuota) break;
+      if (take(chunk)) docUsed += chunk.text.length;
+      if (take(byKey.get(`${chunk.doc}#${chunk.idx - 1}`))) docUsed += CHUNK;
+      if (take(byKey.get(`${chunk.doc}#${chunk.idx + 1}`))) docUsed += CHUNK;
+    }
+  }
+
+  // Then the best-matching passages overall, each with its neighbours so a figure is
+  // never separated from the sentence or table row that qualifies it.
   for (const chunk of ranked) {
     if (used >= budget) break;
     take(chunk);
@@ -111,15 +143,18 @@ export function buildRelevantSourceBlock(
     take(byKey.get(`${chunk.doc}#${chunk.idx + 1}`));
   }
 
-  if (picked.size === 0) return buildSourceBlock(usable);
+  if (picked.size === 0) return inventory + buildSourceBlock(usable);
 
-  return [...picked.values()]
-    .sort((a, b) => (a.doc === b.doc ? a.idx - b.idx : a.doc.localeCompare(b.doc)))
-    .map(
-      (c) =>
-        `<<<SOURCE: ${c.doc} (extract ${c.idx + 1})>>>\n${c.text}\n<<<END EXTRACT>>>`,
-    )
-    .join("\n\n");
+  return (
+    inventory +
+    [...picked.values()]
+      .sort((a, b) => (a.doc === b.doc ? a.idx - b.idx : a.doc.localeCompare(b.doc)))
+      .map(
+        (c) =>
+          `<<<SOURCE: ${c.doc} (extract ${c.idx + 1})>>>\n${c.text}\n<<<END EXTRACT>>>`,
+      )
+      .join("\n\n")
+  );
 }
 
 
@@ -145,6 +180,9 @@ PRECISION RULES:
 - Cite the page or section marker when the source shows one, e.g. [Source: Tax Manual, Page 42] or [Source: ISA 240, para 12].
 - If two sources disagree, say so explicitly and give both values with their citations, then state which one governs and why.
 - If something is only partially covered, answer the covered part precisely and mark the rest "Not found in your sources."
+- Tables are flattened into lines: match a figure to its row label AND its column heading before using it. If a value could belong to more than one row/column, quote the row verbatim instead of asserting the wrong number.
+- Watch qualifiers attached to a figure: per annum vs per month, gross vs net, inclusive of tax, "whichever is higher/lower", currency and unit (Rs/000, million). Carry the qualifier into the answer.
+- Where a rate depends on a band, slab or condition, state the condition that applies and the exact band boundaries as written.
 
 FINAL SELF-CHECK (silent — never print this checklist):
 1. Does the first line literally answer what was asked (the figure/name/date/yes-no)?
@@ -153,10 +191,14 @@ FINAL SELF-CHECK (silent — never print this checklist):
 4. Did I miss a related threshold, exemption, effective date or superseding rule?
 Fix any failure before you output. Be dense and short: no repetition, no restating the question, no closing summary.
 
-CROSS-DOCUMENT LINKING:
-- Treat all SOURCE DOCUMENTS in this notebook as one connected body of material. Before answering, connect related passages ACROSS documents and within the same document (definition in one place, rate in another, worked example in a third).
-- When the answer draws on more than one place, add a short "Linked in your sources" list: 2-4 bullets naming each document (and page/section) and the one thing it contributes, so the user can trace the chain.
+CROSS-DOCUMENT LINKING (mandatory reasoning step):
+- The block "NOTEBOOK INVENTORY" lists EVERY source in this notebook. Extracts are labelled "<<<SOURCE: <name> (extract N)>>>" — the same document may appear as several extracts, and extracts are not the whole document.
+- Treat all sources in the notebook as ONE connected body of material. Before answering, silently build the chain: definition → rule/section → rate or figure → exception/threshold → worked example, pulling each link from wherever it sits (same document or a different one).
+- Resolve every reference you meet: if a passage says "as defined in section X", "see Schedule 2", "subject to para 9", or repeats a defined term, find that target in the other extracts and fold its content into the answer instead of quoting the pointer.
+- Never answer from a single extract when another extract in the notebook qualifies, updates, or contradicts it. Amounts, dates and rates must be checked against every extract mentioning the same term.
+- When the answer draws on more than one place, add a short "Linked in your sources" list: 2-4 bullets naming each document (and page/section/extract) and the one thing it contributes, so the user can trace the chain.
 - Actively flag related material the user did not ask about but that changes the answer (exemptions, thresholds, effective dates, superseding rules).
+- If the chain is broken because a needed piece is not in the extracts, say precisely which piece is missing rather than guessing it.
 
 LESSONS LEARNED: The user has highlighted past mistakes. Never repeat them.`;
 
