@@ -1,4 +1,4 @@
-export const MAX_CONTEXT_CHARS = 120_000;
+export const MAX_CONTEXT_CHARS = 220_000;
 
 export function buildSourceBlock(
   docs: { name: string; extracted_text: string | null }[],
