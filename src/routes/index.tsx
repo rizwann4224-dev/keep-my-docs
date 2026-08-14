@@ -287,7 +287,7 @@ function WorkspacePage() {
                   <AskPanel subjectId={active.id} />
                 </TabsContent>
                 <TabsContent value="mark">
-                  <MarkPanel subjectId={active.id} />
+                  <MarkPanel subjectId={active.id} subjectName={active.name} />
                 </TabsContent>
                 <TabsContent value="performance">
                   <PerformancePanel subjectId={active.id} />

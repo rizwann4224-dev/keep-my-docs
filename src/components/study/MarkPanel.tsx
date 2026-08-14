@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
 import { LessonCapture } from "@/components/study/LessonCapture";
 import { ThinkingStatus } from "@/components/study/ThinkingStatus";
+import { exportMarkingToWord } from "@/lib/export-docx";
 
 const OPTIONS: { id: MarkPart; label: string; hint: string }[] = [
   { id: "feedback", label: "Item-by-item feedback", hint: "🔍 detailed marking commentary" },
@@ -15,10 +16,22 @@ const OPTIONS: { id: MarkPart; label: string; hint: string }[] = [
   { id: "recommendations", label: "Recommendations", hint: "🎯 how to improve" },
 ];
 
-export function MarkPanel({ subjectId }: { subjectId: string }) {
+export function MarkPanel({
+  subjectId,
+  subjectName,
+}: {
+  subjectId: string;
+  subjectName: string;
+}) {
   const [question, setQuestion] = useState("");
   const [userAnswer, setUserAnswer] = useState("");
   const [parts, setParts] = useState<MarkPart[]>(["feedback", "marks", "suggested"]);
+  const [submitted, setSubmitted] = useState<{
+    question: string;
+    userAnswer: string;
+    parts: MarkPart[];
+  } | null>(null);
+  const [exporting, setExporting] = useState(false);
   const key = `${subjectId}:mark`;
 
   useSyncExternalStore(jobs.subscribe, jobs.getSnapshot, jobs.getSnapshot);
@@ -30,6 +43,7 @@ export function MarkPanel({ subjectId }: { subjectId: string }) {
 
   function run() {
     if (running) return;
+    setSubmitted({ question: question.trim(), userAnswer: userAnswer.trim(), parts: [...parts] });
     jobs.startRun(
       key,
       {
@@ -130,6 +144,35 @@ export function MarkPanel({ subjectId }: { subjectId: string }) {
             <p className="text-sm text-destructive">{latest.error ?? "Something went wrong"}</p>
           ) : (
             <ThinkingStatus />
+          )}
+          {latest.status === "done" && latest.answer && (
+            <div className="mt-4 flex justify-end border-t border-border pt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={exporting}
+                onClick={async () => {
+                  setExporting(true);
+                  try {
+                    await exportMarkingToWord({
+                      notebook: subjectName,
+                      question: submitted?.question || latest.question,
+                      userAnswer: submitted?.userAnswer,
+                      requested: (submitted?.parts ?? parts).map(
+                        (id) => OPTIONS.find((o) => o.id === id)?.label ?? id,
+                      ),
+                      response: latest.answer,
+                    });
+                  } catch {
+                    toast.error("Could not build the Word file");
+                  } finally {
+                    setExporting(false);
+                  }
+                }}
+              >
+                {exporting ? "Preparing…" : "Export to Word"}
+              </Button>
+            </div>
           )}
           {latest.status === "done" && <LessonCapture subjectId={subjectId} />}
         </div>
