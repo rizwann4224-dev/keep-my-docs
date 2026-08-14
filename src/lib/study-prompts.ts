@@ -1,4 +1,4 @@
-export const MAX_CONTEXT_CHARS = 220_000;
+export const MAX_CONTEXT_CHARS = 700_000;
 
 export function buildSourceBlock(
   docs: { name: string; extracted_text: string | null }[],
@@ -6,7 +6,7 @@ export function buildSourceBlock(
   const usable = docs.filter((d) => (d.extracted_text ?? "").trim().length > 0);
   if (usable.length === 0) return "NO_SOURCE_TEXT_AVAILABLE";
 
-  const perDoc = Math.max(4000, Math.floor(MAX_CONTEXT_CHARS / usable.length));
+  const perDoc = Math.max(20_000, Math.floor(MAX_CONTEXT_CHARS / usable.length));
   return usable
     .map(
       (d, i) =>
@@ -26,6 +26,11 @@ GROUNDING RULE:
 - Roughly 80% of every response must come from the SOURCE DOCUMENTS. Cite as [Source: <document name>].
 - At most ~20% may come from wider professional knowledge; label it [External reference].
 - Never invent figures, rates, section numbers or standard references. If the sources do not contain it, say exactly: "Not found in your sources." and then, only if useful, give the external figure labelled [External reference].
+
+SEARCH DISCIPLINE (do this before writing anything):
+- Scan EVERY source document end to end for the exact term asked about, plus its synonyms, abbreviations, table headings and any figure that could be the answer. Sources are delimited by page markers like [Page 12] — use them for citations.
+- Only after that scan do you decide whether something is present. Never say it is missing because it was not in the first source.
+- Verify each figure you output by re-reading the exact line it came from; if the line is ambiguous, quote it verbatim next to the figure.
 
 PRECISION RULES:
 - Quote figures, rates, dates, section/standard numbers EXACTLY as written in the source. Never round, paraphrase or "approximately" a number.

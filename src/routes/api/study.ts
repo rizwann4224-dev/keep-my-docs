@@ -71,8 +71,9 @@ export const Route = createFileRoute("/api/study")({
           method: "POST",
           headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: data.mode === "mark" ? "google/gemini-2.5-pro" : "google/gemini-2.5-flash",
-            temperature: 0.1,
+            model: "google/gemini-2.5-pro",
+            temperature: 0,
+            top_p: 0.1,
             stream: true,
             messages: [
               { role: "system", content: system },
