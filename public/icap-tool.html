@@ -1,0 +1,2405 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Marking Gutter — ICAP CFAP self-study (Scheme 2025)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,600;1,400&family=Archivo+Narrow:wght@400;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+<style>
+:root{
+  --ink:#14202B;
+  --ink-soft:#4A5A66;
+  --paper:#FBFBF9;
+  --board:#E3E8E6;
+  --board-deep:#D3DAD8;
+  --rule:#C2D0D6;
+  --red:#B22233;
+  --marked:#2F6B52;
+  --amber:#9A6F1B;
+  --serif:"Spectral",Georgia,serif;
+  --util:"Archivo Narrow","Arial Narrow",sans-serif;
+  --pen:"Caveat",cursive;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--board);color:var(--ink);font-family:var(--serif);
+  font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;
+}
+button{font-family:var(--util);cursor:pointer}
+input,select,textarea{font-family:inherit}
+
+.wrap{max-width:1240px;margin:0 auto;padding:0 18px 80px}
+.masthead{padding:26px 0 14px;display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
+.mark-logo{width:44px;height:44px;flex:none}
+.masthead h1{font-family:var(--util);font-weight:700;font-size:15px;letter-spacing:.22em;text-transform:uppercase;margin:0;line-height:1.2}
+.masthead p{margin:2px 0 0;font-size:13.5px;color:var(--ink-soft);font-style:italic;max-width:48ch}
+
+.tabs{display:flex;gap:3px;align-items:flex-end;border-bottom:2px solid var(--ink);margin-top:20px;overflow-x:auto}
+.tab{background:var(--board-deep);border:1px solid var(--rule);border-bottom:none;color:var(--ink-soft);
+  font-size:11.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;padding:9px 15px 8px;
+  border-radius:3px 3px 0 0;white-space:nowrap;position:relative;top:1px}
+.tab[aria-selected="true"]{background:var(--paper);color:var(--ink);border-color:var(--ink);border-bottom:2px solid var(--paper);top:2px}
+.tab .badge{display:inline-block;background:var(--red);color:#fff;font-size:10px;border-radius:8px;padding:0 5px;margin-left:6px;vertical-align:1px}
+.view{display:none;padding-top:24px}
+.view.on{display:block}
+
+.sheet{background:var(--paper);border:1px solid var(--rule);border-radius:2px;
+  box-shadow:0 1px 0 var(--board-deep),0 10px 24px -18px rgba(20,32,43,.4);padding:22px 24px}
+.sheet + .sheet{margin-top:18px}
+.eyebrow{font-family:var(--util);font-size:10.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ink-soft);margin:0 0 12px;display:flex;align-items:center;gap:10px}
+.eyebrow::after{content:"";flex:1;height:1px;background:var(--rule)}
+h2.title{font-size:22px;font-weight:600;margin:0 0 6px;letter-spacing:-.01em}
+.muted{color:var(--ink-soft);font-size:14px}
+
+.field{display:block;margin:0 0 14px}
+.field > span{display:block;font-family:var(--util);font-size:10.5px;font-weight:600;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-soft);margin-bottom:5px}
+input[type=text],select,textarea{width:100%;background:#fff;border:1px solid var(--rule);border-radius:2px;
+  padding:9px 11px;font-size:15px;color:var(--ink)}
+textarea{line-height:1.75;resize:vertical}
+input[type=text]:focus,select:focus,textarea:focus{outline:2px solid var(--ink);outline-offset:1px;border-color:var(--ink)}
+.row{display:flex;gap:14px;flex-wrap:wrap}
+.row > *{flex:1 1 170px;min-width:0}
+
+.btn{background:var(--ink);color:var(--paper);border:1px solid var(--ink);border-radius:2px;
+  padding:10px 18px;font-size:11.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
+.btn:hover{background:#0B1620}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--board)}
+.btn.red{background:var(--red);border-color:var(--red)}
+.btn.red:hover{background:#8E1A29}
+.btn.sm{padding:7px 12px;font-size:10.5px}
+
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:2px;overflow:hidden;background:#fff;flex-wrap:wrap}
+.seg button{background:#fff;border:none;border-right:1px solid var(--rule);padding:8px 14px;
+  font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+.seg button:last-child{border-right:none}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+
+.reader{display:grid;grid-template-columns:minmax(0,1fr) 392px;gap:18px;align-items:start}
+@media(max-width:940px){.reader{grid-template-columns:minmax(0,1fr)}}
+
+.drop{border:2px dashed var(--rule);border-radius:3px;background:var(--paper);padding:52px 24px;text-align:center}
+.drop.hot{border-color:var(--ink);background:#fff}
+.drop h3{font-size:20px;font-weight:600;margin:0 0 6px}
+.drop p{margin:0 auto 18px;max-width:46ch;color:var(--ink-soft);font-size:14px}
+
+.pdfbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--paper);
+  border:1px solid var(--rule);border-bottom:none;border-radius:2px 2px 0 0;padding:9px 12px}
+.pdfbar .fname{font-family:var(--util);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:30ch;flex:1}
+.pageno{font-family:var(--util);font-size:13px;font-weight:600;letter-spacing:.06em}
+.pageno input{width:56px;padding:4px 6px;font-size:13px;text-align:center;font-family:var(--util)}
+.stage{background:var(--board-deep);border:1px solid var(--rule);border-radius:0 0 2px 2px;
+  max-height:78vh;overflow:auto;padding:16px;display:flex;justify-content:center}
+.pageBox{position:relative;background:#fff;box-shadow:0 6px 18px -10px rgba(20,32,43,.55);flex:none}
+canvas{display:block}
+.textLayer{position:absolute;inset:0;overflow:hidden;line-height:1;opacity:1}
+.textLayer span,.textLayer br{color:transparent;position:absolute;white-space:pre;transform-origin:0 0;cursor:text}
+.textLayer span::selection{background:rgba(178,34,51,.28)}
+.textLayer span::-moz-selection{background:rgba(178,34,51,.28)}
+
+.chip{position:fixed;z-index:60;display:none;gap:4px;background:var(--ink);border-radius:3px;
+  padding:4px;box-shadow:0 8px 20px -8px rgba(0,0,0,.6)}
+.chip.on{display:flex}
+.chip button{background:transparent;border:none;color:var(--paper);font-size:11px;font-weight:700;
+  letter-spacing:.12em;text-transform:uppercase;padding:6px 10px;border-radius:2px}
+.chip button:hover{background:#2B3B47}
+
+.panel{position:sticky;top:14px}
+.quote{border-left:3px solid var(--rule);padding:6px 0 6px 12px;margin:0 0 14px;font-size:13.5px;
+  font-style:italic;color:var(--ink-soft);max-height:96px;overflow:auto}
+.prose{font-size:15.5px}
+.prose h4{font-family:var(--util);font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--red);margin:20px 0 7px}
+.prose p{margin:0 0 12px}
+.prose ul,.prose ol{margin:0 0 12px;padding-left:20px}
+.prose li{margin-bottom:6px}
+.prose strong{font-weight:600}
+.prose code{background:var(--board);padding:1px 4px;font-size:.9em;border-radius:2px}
+.panel-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px;padding-top:16px;border-top:1px solid var(--rule)}
+
+.qpaper{border-top:2px solid var(--ink);padding-top:16px}
+.qhead{display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.qhead .meta{font-family:var(--util);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+.scenario{font-size:16px}
+.scenario p{margin:0 0 12px}
+.reqs{margin:20px 0 0;border-top:1px solid var(--rule);padding-top:14px}
+.reqs .rq{display:flex;gap:14px;align-items:flex-start;padding:9px 0;border-bottom:1px dotted var(--rule)}
+.reqs .rq:last-child{border-bottom:none}
+.rq .lab{font-family:var(--util);font-weight:700;font-size:14px;width:26px;flex:none}
+.rq .txt{flex:1}
+.rq .mk{font-family:var(--util);font-weight:700;font-size:13px;white-space:nowrap;color:var(--ink-soft)}
+
+.script{border:1px solid var(--rule);background:#fff;border-radius:2px;overflow:hidden}
+.script-top{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 18px;
+  border-bottom:1px solid var(--rule);background:var(--paper);flex-wrap:wrap}
+.verdict{font-family:var(--util);font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase}
+.verdict.fail{color:var(--red)}
+.verdict.pass{color:var(--marked)}
+.total{position:relative;flex:none;width:112px;height:64px}
+.total svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.total .ell{fill:none;stroke:var(--red);stroke-width:2.2;stroke-linecap:round}
+.total .num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-family:var(--pen);font-size:29px;font-weight:700;color:var(--red)}
+@media(prefers-reduced-motion:no-preference){
+  .total .ell{stroke-dasharray:340;stroke-dashoffset:340;animation:draw .85s ease-out .15s forwards}
+  .gline{opacity:0;animation:fadeUp .34s ease-out forwards}
+}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+
+.gutter{padding:4px 0}
+.gline{display:grid;grid-template-columns:minmax(0,1fr) 88px;gap:10px;padding:11px 18px;border-bottom:1px solid #EEF1F0}
+.gline:last-child{border-bottom:none}
+.gline .pt{font-size:15px}
+.gline .pt em{display:block;font-size:13px;color:var(--ink-soft);margin-top:3px}
+.gline .pen{font-family:var(--pen);font-size:22px;font-weight:700;text-align:right;
+  border-left:1px dashed rgba(178,34,51,.35);padding-left:8px}
+.pen.got{color:var(--marked)}
+.pen.part{color:var(--amber)}
+.pen.none{color:var(--red)}
+
+.comments{background:#FFF7F7;border-top:1px solid rgba(178,34,51,.3);padding:16px 18px}
+.comments .eyebrow{color:var(--red)}
+.comments .eyebrow::after{background:rgba(178,34,51,.25)}
+.comments p{margin:0 0 10px;font-size:15px}
+.lost{margin:0;padding-left:20px}
+.lost li{margin-bottom:5px;font-size:14.5px}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.tag{font-family:var(--util);font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  border:1px solid var(--rule);background:var(--paper);color:var(--ink-soft);padding:3px 8px;border-radius:2px}
+details.model{border-top:1px solid var(--rule);padding:14px 18px}
+details.model summary{font-family:var(--util);font-size:11px;font-weight:700;letter-spacing:.16em;
+  text-transform:uppercase;cursor:pointer;color:var(--ink)}
+details.model .prose{margin-top:12px}
+.urdu{border-top:1px solid var(--rule);padding:16px 18px;background:var(--paper)}
+
+.timer{font-family:var(--util);font-weight:700;font-size:26px;letter-spacing:.04em;
+  border:2px solid var(--ink);border-radius:2px;padding:4px 14px;display:inline-block}
+.timer.warn{color:var(--red);border-color:var(--red)}
+
+.flash{background:#fff;border:1px solid var(--rule);border-radius:2px;padding:30px 26px;min-height:180px;
+  display:flex;flex-direction:column;justify-content:center;text-align:center}
+.flash .f{font-size:19px;font-weight:600}
+.flash .b{margin-top:16px;padding-top:16px;border-top:1px solid var(--rule);font-size:16px;text-align:left}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px}
+.stat{border:1px solid var(--rule);background:#fff;border-radius:2px;padding:14px}
+.stat .k{font-family:var(--util);font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)}
+.stat .v{font-family:var(--util);font-size:30px;font-weight:700;line-height:1.15;margin-top:4px}
+.bar{display:grid;grid-template-columns:minmax(0,1fr) 130px 52px;gap:12px;align-items:center;
+  padding:9px 0;border-bottom:1px solid #EEF1F0}
+.bar:last-child{border-bottom:none}
+.bar .nm{font-size:15px;overflow:hidden;text-overflow:ellipsis}
+.track{height:8px;background:var(--board);border-radius:1px;overflow:hidden}
+.fill{height:100%;background:var(--marked)}
+.fill.low{background:var(--red)}
+.fill.mid{background:var(--amber)}
+.bar .pc{font-family:var(--util);font-weight:700;font-size:14px;text-align:right}
+
+.empty{text-align:center;padding:34px 20px;color:var(--ink-soft)}
+.empty strong{display:block;color:var(--ink);font-size:17px;font-weight:600;margin-bottom:5px}
+.err{border:1px solid var(--red);background:#FFF7F7;color:#7C1725;padding:11px 14px;border-radius:2px;font-size:14.5px;margin-bottom:14px}
+.load{display:flex;align-items:center;gap:10px;font-family:var(--util);font-size:11.5px;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--red);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
+.hidden{display:none !important}
+:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <svg class="mark-logo" viewBox="0 0 44 44" aria-hidden="true">
+      <rect x="2.5" y="2.5" width="30" height="39" fill="#FBFBF9" stroke="#14202B" stroke-width="2"/>
+      <line x1="8" y1="13" x2="27" y2="13" stroke="#C2D0D6" stroke-width="1.5"/>
+      <line x1="8" y1="20" x2="27" y2="20" stroke="#C2D0D6" stroke-width="1.5"/>
+      <line x1="8" y1="27" x2="21" y2="27" stroke="#C2D0D6" stroke-width="1.5"/>
+      <path d="M24 30 l5 6 l11 -18" fill="none" stroke="#B22233" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div>
+      <h1>The Marking Gutter</h1>
+      <p>Self-study bench for ICAP CFAP &amp; Strategic Case Study, Education Scheme 2025. Read, ask, attempt, and get marked without mercy.</p>
+    </div>
+    <div style="margin-left:auto;text-align:right;min-width:270px">
+      <div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
+        <select id="provider" style="width:auto;padding:6px 8px;font-size:12px;background:#fff;border:1px solid var(--rule);border-radius:2px">
+          <option value="claude">Inside Claude — free</option>
+          <option value="gemini">Google key — free</option>
+          <option value="claudekey">Anthropic key — paid</option>
+        </select>
+        <input type="password" id="apikey" placeholder="Paste key here" class="hidden"
+          style="width:180px;padding:6px 9px;font-size:12px;background:#fff;border:1px solid var(--rule);border-radius:2px">
+        <select id="gemmodel" class="hidden" title="Which Google model answers"
+          style="width:auto;max-width:190px;padding:6px 8px;font-size:12px;background:#fff;border:1px solid var(--rule);border-radius:2px"></select>
+        <button class="btn ghost sm" id="diag">Check connection</button>
+      </div>
+      <div id="diagOut" class="muted" style="font-size:12.5px;max-width:38ch;margin-top:6px;margin-left:auto"></div>
+    </div>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-v="read">Read &amp; ask</button>
+    <button class="tab" role="tab" aria-selected="false" data-v="practice">Practice</button>
+    <button class="tab" role="tab" aria-selected="false" data-v="mock">Timed mock</button>
+    <button class="tab" role="tab" aria-selected="false" data-v="cards">Recall<span class="badge hidden" id="dueBadge">0</span></button>
+    <button class="tab" role="tab" aria-selected="false" data-v="progress">Weak areas</button>
+  </div>
+
+  <section class="view on" id="v-read">
+    <div class="reader">
+      <div>
+        <div id="drop" class="drop">
+          <h3>Open a book</h3>
+          <p>Any PDF — corporate reporting, sustainability, tax, audit, corporate laws. It must be a text PDF, not a scan: if you can't select text in a normal reader, this can't either.</p>
+          <input type="file" id="file" accept="application/pdf" class="hidden">
+          <button class="btn" id="pick">Choose PDF</button>
+          <p style="margin-top:16px;font-size:12.5px">Or drag the file onto this panel.</p>
+        </div>
+
+        <div id="viewer" class="hidden">
+          <div class="pdfbar">
+            <span class="fname" id="fname"></span>
+            <button class="btn ghost sm" id="prev">&larr; Prev</button>
+            <span class="pageno">Page <input type="text" id="pnum" value="1"> / <span id="pcount">0</span></span>
+            <button class="btn ghost sm" id="next">Next &rarr;</button>
+            <button class="btn ghost sm" id="zout">&minus;</button>
+            <button class="btn ghost sm" id="zin">+</button>
+            <button class="btn ghost sm" id="close">Change book</button>
+          </div>
+          <div class="stage" id="stage">
+            <div class="pageBox" id="pageBox">
+              <canvas id="cv"></canvas>
+              <div class="textLayer" id="tl"></div>
+            </div>
+          </div>
+          <p class="muted" style="margin:10px 2px 0">Select any lines on the page, then press <strong>Samjhao</strong>.</p>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <div class="sheet">
+          <p class="eyebrow">Explanation</p>
+          <div class="seg" id="modeSeg" style="margin-bottom:14px">
+            <button data-m="asaan" aria-pressed="true">Asaan</button>
+            <button data-m="tafseel" aria-pressed="false">Tafseel</button>
+            <button data-m="exam" aria-pressed="false">Exam angle</button>
+          </div>
+          <div id="exBody">
+            <div class="empty">
+              <strong>Nothing selected yet</strong>
+              Highlight a paragraph in the book and I'll break it down in Roman Urdu, with a Pakistan-context example.
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="view" id="v-practice">
+    <div class="sheet">
+      <p class="eyebrow">Set a question</p>
+      <div class="row">
+        <label class="field"><span>Paper</span><select id="pPaper"></select></label>
+        <label class="field"><span>Topic</span><select id="pTopicMain"></select></label>
+        <label class="field"><span>Sub-topic</span><select id="pTopicSub"></select></label>
+      </div>
+      <div class="row">
+        <label class="field" style="flex:1 1 100%"><span>Narrow it further (optional)</span>
+          <input type="text" id="pTopic" placeholder="e.g. sale and leaseback where the transfer fails the IFRS 15 test"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Level</span><select id="pLevel">
+          <option>Moderate</option><option selected>Difficult</option><option>Exam trap — hidden issues</option>
+        </select></label>
+        <label class="field"><span>Style</span><select id="pStyle">
+          <option>Full scenario</option><option>Computational</option><option>Conceptual / discussion</option>
+        </select></label>
+        <label class="field"><span>Marks</span><select id="pMarks">
+          <option>8</option><option selected>12</option><option>16</option><option>20</option>
+        </select></label>
+      </div>
+      <button class="btn" id="genQ">Generate question</button>
+      <span class="muted" style="margin-left:12px" id="qHint"></span>
+    </div>
+    <div id="qWrap"></div>
+  </section>
+
+  <section class="view" id="v-mock">
+    <div class="sheet" id="mockSetup">
+      <p class="eyebrow">Sit a timed paper</p>
+      <div class="row">
+        <label class="field"><span>Paper</span><select id="mPaper"></select></label>
+        <label class="field"><span>Add a syllabus topic</span><select id="mTopicPick"></select></label>
+      </div>
+      <div class="row">
+        <label class="field" style="flex:1 1 100%"><span>Topics to cover</span>
+          <input type="text" id="mTopics" placeholder="Pick from the list above, or type your own separated by commas"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>Total marks</span><select id="mMarks">
+          <option>30</option><option selected>50</option><option>100</option>
+        </select></label>
+        <label class="field"><span>Questions</span><select id="mCount">
+          <option>2</option><option selected>3</option><option>4</option>
+        </select></label>
+      </div>
+      <p class="muted" style="margin:0 0 14px">The clock runs at ICAP pace — 1.8 minutes per mark. It does not pause.</p>
+      <button class="btn red" id="startMock">Start paper</button>
+    </div>
+    <div id="mockWrap"></div>
+  </section>
+
+  <section class="view" id="v-cards">
+    <div class="sheet">
+      <p class="eyebrow">Active recall</p>
+      <div id="cardBody"></div>
+    </div>
+    <div class="sheet">
+      <p class="eyebrow">Deck</p>
+      <div id="deckList"></div>
+    </div>
+  </section>
+
+  <section class="view" id="v-progress">
+    <div class="sheet">
+      <p class="eyebrow">Where you stand</p>
+      <div class="stats" id="statBox"></div>
+    </div>
+    <div class="sheet">
+      <p class="eyebrow">Topics costing you marks</p>
+      <div id="topicBars"></div>
+    </div>
+    <div class="sheet">
+      <p class="eyebrow">Your error pattern</p>
+      <div id="errBars"></div>
+    </div>
+    <div class="sheet">
+      <p class="eyebrow">Attempt log</p>
+      <div id="log"></div>
+      <div class="panel-actions">
+        <button class="btn ghost sm" id="dlSheet">Download revision sheet</button>
+        <button class="btn ghost sm" id="wipe">Clear all progress</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="chip" id="chip"><button id="chipExplain">Samjhao</button><button id="chipAsk">Question on this</button></div>
+
+<script>
+const KEY = "markinggutter:v1";
+const mem = {};
+const S = {
+  d:{attempts:[],cards:[],concepts:[]},
+  pdf:null, page:1, scale:1.35, fname:"", sel:"", mode:"asaan",
+  q:null, mock:null, tick:null, card:null
+};
+// ICAP Education and Training Scheme 2025 — CFAP syllabus as examinable from
+// the Autumn 2026 attempt. MSA-1 and MSA-2 are gone: MSA-2 became the Strategic
+// Case Study, and MSA-1/SPM holdouts move to CFAP-3.
+const SYLLABUS = {
+  "CFAP-1 Advanced Corporate Reporting": {
+    grid: "A Financial Reporting for Groups (30-40%) · B Essential Financial Transactions and Ethics (30-40%) · C Specialized and Other Areas of Financial Reporting (25-35%)",
+    core: "IFRS 10/11/12, IAS 27/28 consolidations; IFRS 9 financial instruments; IFRS 15 revenue; IAS 12 income taxes; IFRS 16 leases; IFRS 2 share-based payment; IAS 19 employee benefits; IAS 36 impairment; IFRS 13 fair value; IAS 21, IAS 34, IAS 24; Fourth and Fifth Schedules of the Companies Act 2017; Islamic Accounting Standards issued by ICAP; IPSAS overview; Code of Ethics for Chartered Accountants (Revised 2024).",
+    heavy: "Group reporting and IFRS 9 / 15 / 12 / 16 carry the marks. Sector-specific reporting for banks, mutual funds and insurance is overview only."
+  },
+  "CFAP-2 Corporate Laws and Governance": {
+    grid: "A Secretarial Practices (35-45%) · B Mediation, Arbitration, Mismanagement, Restructuring and Governance (10-15%) · C Specialized Corporate Laws (10-15%) · D Other Relevant Laws (30-40%)",
+    core: "Companies Act 2017 with Companies Regulations 2024; Securities Act 2015; Listed Companies (Code of Corporate Governance) Regulations 2019; Takeover, Buy-Back and Further Issue regulations; NBFC rules; Insurance Ordinance 2000; Banking Companies Ordinance 1962; Competition Act 2010; SBP Foreign Exchange Manual ch. 19-20; AML Act 2010 and SECP AML/CFT Regulations 2020; SOE (Governance and Operations) Act 2023; Public Sector Companies (Corporate Governance) Rules 2013; ICAP Code of Ethics (Revised 2024) Parts I and II.",
+    heavy: "Secretarial practice is the biggest block. Answers must cite the section or regulation number."
+  },
+  "CFAP-3 Sustainability Reporting and Assurance": {
+    grid: "A Sustainability-related Disclosure Concepts and Application (30-40%) · B Sustainability Reporting (30-40%) · C Assurance-related Considerations (25-35%)",
+    core: "IFRS S1 General Requirements; IFRS S2 Climate-related Disclosures; ISSA 5000 sustainability assurance; International Ethics Standards for Sustainability Assurance (IESSA); Code of Corporate Governance; SASB Standards for the 12 examinable industries (apparel/footwear, e-commerce, oil and gas E&P, iron and steel, commercial banks, agricultural products, biotech and pharma, electric utilities and power generators, chemicals, professional and commercial services, telecommunication services, automobiles).",
+    heavy: "Core content — governance, strategy, risk management, metrics and targets — is the spine of both S1 and S2 answers. Assurance questions run the full cycle: plan, perform, conclude, report. Judgments, uncertainties and errors, and local Pakistani sustainability regulation, are examined at P3. Note this is a newer paper, so pitch marks at the stated testing levels rather than assuming deep case-law style depth."
+  },
+  "CFAP-4 Strategic Business Finance": {
+    grid: "A Business Appraisals and Securities (40-60%) · B Capital and its Sources (25-30%) · C Financial Risk Management (20-25%)",
+    core: "Business valuation (dividend yield, P/E, DCF, asset-based); appraisal of acquisitions, mergers, demergers, spin-offs; NPV, APV, IRR, MIRR, EIRR, payback, capital rationing, sensitivity and scenario analysis; WACC, CAPM, ungearing and regearing beta, SML; APT; Modigliani-Miller and traditional capital structure theory; portfolio selection and correlation; hedging interest rate and FX exposure with futures, forwards, options, swaps, swaptions and money market hedges.",
+    heavy: "Appraisal and valuation dominate. Workings must be shown; a bare figure earns little."
+  },
+  "CFAP-5 Tax Practices and Planning": {
+    grid: "A Income Tax (55-70%) · B Sales Tax and Federal Excise Duty (25-35%) · C Ethics (5-10%)",
+    core: "Income Tax Ordinance 2001 and Income Tax Rules 2002 — heads of income, losses, deductible allowances, tax credits, returns, assessment, appeals, audit, advance tax, withholding, minimum and final tax regimes, international taxation, thin capitalisation and anti-avoidance; Sales Tax Act 1990 and Rules 2006 including apportionment of input tax and provincial sales tax on services; Federal Excise Act 2005 ss. 1-18; Code of Ethics s. 600 for tax practitioners.",
+    heavy: "Computations must be laid out as a proper tax computation with section references."
+  },
+  "CFAP-6 Audit, Assurance and Data": {
+    grid: "A Planning, Risks and Performance (40-50%) · B Audit Conclusions and Reporting (15-25%) · C Specialized Areas, Other Assurance and Related Services (15-20%) · D Ethical, Quality Control and Professional Requirements (15-20%)",
+    core: "Full ISA suite including ISA 315 (revised), 330, 540 (revised), 600 (revised), 570, 700-720; ISRE 2400/2410; ISAE 3000, 3400, 3402, 3410 greenhouse gas statements, 3420; ISRS 4400 (revised) and 4410; ISQM 1 and 2, ISA 220 (revised); Code of Ethics (Revised 2024); Chartered Accountants Ordinance 1961 Chapter V-A and Schedules I-III.",
+    heavy: "This paper now examines cyber risk, ICT and data analytics as first-class audit content, plus assurance over greenhouse gas statements — not just classical historical-information auditing."
+  },
+  "Strategic Case Study": {
+    grid: "Integrated across strategy, financial and performance management, governance, ethics and reporting. Replaces MSA-2 Management Professional Competence.",
+    core: "Strategic analysis and choice; competitive advantage; information and performance data; strategic HRM, appraisal, reward and change management; performance measurement using financial and non-financial information including ESG, sustainability and integrated reporting; corporate social responsibility; governance and ethics applied to an unstructured business case.",
+    heavy: "Marks come from integration and judgment across disciplines, not from reciting one standard. Advice must be actionable and addressed to a named stakeholder."
+  }
+};
+const PAPERS = Object.keys(SYLLABUS);
+
+// Topic tree per paper. Main topics carry the syllabus grid reference
+// (A1, B2, ...) so they map straight onto the ICAP syllabus and study text
+// ordering; sub-topics are the examinable subheadings under each.
+const TOPICS = {
+ "CFAP-1 Advanced Corporate Reporting": [
+  {
+   "n": "A1",
+   "t": "Consolidated financial statements (IFRS 10)",
+   "subs": [
+    "Basic consolidation and non-controlling interest",
+    "Goodwill, bargain purchase and consideration transferred (IFRS 3)",
+    "Step acquisitions and piecemeal disposals",
+    "Loss of control and deemed disposal",
+    "Complex and vertical group structures",
+    "Consolidated statement of cash flows (IAS 7)",
+    "Foreign subsidiary translation (IAS 21)",
+    "Intra-group eliminations and unrealised profit"
+   ]
+  },
+  {
+   "n": "A2",
+   "t": "Associates, joint arrangements and separate financial statements",
+   "subs": [
+    "IAS 28 equity method",
+    "IFRS 11 joint operations and joint ventures",
+    "IAS 27 separate financial statements",
+    "IFRS 12 disclosure of interests in other entities"
+   ]
+  },
+  {
+   "n": "A3",
+   "t": "Analysis and interpretation of general purpose financial reports",
+   "subs": [
+    "Ratio analysis and quality of earnings",
+    "Interpreting group performance for stakeholders"
+   ]
+  },
+  {
+   "n": "A4",
+   "t": "IAS 21 Effects of changes in foreign exchange rates",
+   "subs": [
+    "Functional versus presentation currency",
+    "Monetary and non-monetary items",
+    "IFRIC 22 advance consideration"
+   ]
+  },
+  {
+   "n": "A5",
+   "t": "IFRS 5 Non-current assets held for sale and discontinued operations",
+   "subs": [
+    "Held for sale classification and measurement",
+    "Presentation of discontinued operations"
+   ]
+  },
+  {
+   "n": "A6",
+   "t": "IAS 34 Interim financial reporting",
+   "subs": [
+    "Recognition and measurement in interim periods",
+    "IFRIC 10 interim impairment"
+   ]
+  },
+  {
+   "n": "A7",
+   "t": "IAS 24 Related party disclosures",
+   "subs": [
+    "Identifying related parties",
+    "Companies Act 2017 and local disclosure requirements"
+   ]
+  },
+  {
+   "n": "B1",
+   "t": "IFRS 9 Financial instruments",
+   "subs": [
+    "Classification and business model test",
+    "Amortised cost and effective interest",
+    "Expected credit loss model",
+    "Hedge accounting",
+    "Derecognition and modification",
+    "IAS 32 presentation and compound instruments",
+    "IFRS 7 disclosures",
+    "IFRIC 16 and IFRIC 19"
+   ]
+  },
+  {
+   "n": "B2",
+   "t": "IFRS 15 Revenue from contracts with customers",
+   "subs": [
+    "The five-step model",
+    "Variable consideration and constraint",
+    "Principal versus agent",
+    "Contract costs, modifications and disclosure"
+   ]
+  },
+  {
+   "n": "B3",
+   "t": "IAS 12 Income taxes",
+   "subs": [
+    "Deferred tax on temporary differences",
+    "Unused losses and recoverability",
+    "IFRIC 23 uncertain tax treatments",
+    "SIC 25 change in tax status"
+   ]
+  },
+  {
+   "n": "B4",
+   "t": "Code of Ethics for accountants in business",
+   "subs": [
+    "Fundamental principles and threats",
+    "Pressure to breach and NOCLAR"
+   ]
+  },
+  {
+   "n": "C1",
+   "t": "IAS 36 Impairment of assets",
+   "subs": [
+    "Cash generating units and allocation of goodwill",
+    "Value in use and recoverable amount",
+    "Reversal of impairment"
+   ]
+  },
+  {
+   "n": "C2",
+   "t": "IAS 19 Employee benefits",
+   "subs": [
+    "Defined benefit obligation and plan assets",
+    "Remeasurements and past service cost",
+    "IFRIC 14 asset ceiling"
+   ]
+  },
+  {
+   "n": "C3",
+   "t": "IFRS 2 Share-based payment",
+   "subs": [
+    "Equity-settled and cash-settled",
+    "Vesting conditions and modifications"
+   ]
+  },
+  {
+   "n": "C4",
+   "t": "IFRS 13 Fair value measurement",
+   "subs": [
+    "Fair value hierarchy and inputs",
+    "Highest and best use, valuation techniques"
+   ]
+  },
+  {
+   "n": "C5",
+   "t": "IFRS 16 Leases",
+   "subs": [
+    "Lessee recognition and right-of-use asset",
+    "Lease modifications and reassessment",
+    "Lessor accounting",
+    "Sale and leaseback"
+   ]
+  },
+  {
+   "n": "C6",
+   "t": "Sector-specific financial reporting",
+   "subs": [
+    "Banks",
+    "Mutual funds",
+    "Insurance companies (IFRS 17 overview)"
+   ]
+  },
+  {
+   "n": "C7",
+   "t": "Other and overview standards",
+   "subs": [
+    "IFRS for SMEs",
+    "IAS 26 retirement benefit plans",
+    "IFRS 1 first-time adoption",
+    "IFRS 6 mineral resources",
+    "IFRS 14 regulatory deferral accounts",
+    "IAS 29 hyperinflationary economies"
+   ]
+  },
+  {
+   "n": "C8",
+   "t": "Local and specialised frameworks",
+   "subs": [
+    "Fourth and Fifth Schedules, Companies Act 2017",
+    "Islamic Accounting Standards issued by ICAP",
+    "IPSAS and public sector reporting",
+    "IFRS Foundation guidance on digital assets and cryptocurrency"
+   ]
+  }
+ ],
+ "CFAP-2 Corporate Laws and Governance": [
+  {
+   "n": "A1",
+   "t": "General law governing companies",
+   "subs": [
+    "Incorporation, memorandum and articles",
+    "Share capital, alteration and reduction",
+    "Directors, powers, duties and disqualification",
+    "Accounts, audit and filing obligations",
+    "Companies Regulations 2024"
+   ]
+  },
+  {
+   "n": "A2",
+   "t": "Issuance of securities",
+   "subs": [
+    "Private Placement of Securities Rules 2017",
+    "Companies (Further Issue of Shares) Regulations 2020",
+    "Public Offering Regulations 2017"
+   ]
+  },
+  {
+   "n": "A3",
+   "t": "Laws governing listed companies",
+   "subs": [
+    "Securities Act 2015",
+    "PSX Rule Book chapter 5",
+    "Buy-back of shares regulations 2019",
+    "Substantial acquisition and takeovers regulations 2017"
+   ]
+  },
+  {
+   "n": "A4",
+   "t": "Independent directors",
+   "subs": [
+    "Manner and Selection of Independent Directors Regulations 2018"
+   ]
+  },
+  {
+   "n": "A5",
+   "t": "Meetings, resolutions and minutes",
+   "subs": [
+    "Notices of general and board meetings",
+    "Ordinary and special resolutions",
+    "Postal ballot regulations 2018",
+    "Minutes and record keeping"
+   ]
+  },
+  {
+   "n": "A6",
+   "t": "Related party and distribution requirements",
+   "subs": [
+    "Related Party Transactions Regulations 2018",
+    "Distribution of Dividends Regulations 2017",
+    "Investment in associated companies regulations 2017",
+    "Employees Contributory Fund Regulations 2018"
+   ]
+  },
+  {
+   "n": "B1",
+   "t": "Mediation, arbitration, oppression and mismanagement",
+   "subs": [
+    "Companies Act 2017 sections 276 to 292"
+   ]
+  },
+  {
+   "n": "B2",
+   "t": "Corporate restructuring",
+   "subs": [
+    "Corporate Restructuring Companies Act 2016",
+    "Corporate Restructuring Companies Rules 2019",
+    "Mergers, amalgamation and schemes of arrangement"
+   ]
+  },
+  {
+   "n": "B3",
+   "t": "Corporate governance of listed companies",
+   "subs": [
+    "Listed Companies (Code of Corporate Governance) Regulations 2019",
+    "Board composition, committees and disclosure"
+   ]
+  },
+  {
+   "n": "C1",
+   "t": "Non-banking finance companies",
+   "subs": [
+    "Companies Ordinance 1984 sections 282A to 282N",
+    "NBFC and Notified Entities Regulations 2008"
+   ]
+  },
+  {
+   "n": "C2",
+   "t": "Insurance companies",
+   "subs": [
+    "Insurance Ordinance 2000 examinable parts"
+   ]
+  },
+  {
+   "n": "C3",
+   "t": "Banking companies",
+   "subs": [
+    "Banking Companies Ordinance 1962 examinable sections"
+   ]
+  },
+  {
+   "n": "D1",
+   "t": "Competition law",
+   "subs": [
+    "Competition Act 2010 chapters I and II"
+   ]
+  },
+  {
+   "n": "D2",
+   "t": "Foreign exchange",
+   "subs": [
+    "SBP Foreign Exchange Manual chapters 19 and 20"
+   ]
+  },
+  {
+   "n": "D3",
+   "t": "Anti-money laundering and terror financing",
+   "subs": [
+    "Anti-Money Laundering Act 2010",
+    "SECP AML/CFT/CPF Regulations 2020"
+   ]
+  },
+  {
+   "n": "D4",
+   "t": "Public sector governance",
+   "subs": [
+    "State Owned Enterprises (Governance and Operations) Act 2023",
+    "Public Sector Companies (Corporate Governance) Rules 2013"
+   ]
+  },
+  {
+   "n": "D5",
+   "t": "Trusts",
+   "subs": [
+    "Islamabad Capital Territory Trust Act 2020"
+   ]
+  },
+  {
+   "n": "D6",
+   "t": "Code of Ethics for Chartered Accountants (Revised 2024)",
+   "subs": [
+    "Part I fundamental principles",
+    "Part II accountants in business",
+    "Threats, safeguards and conflicts of interest"
+   ]
+  }
+ ],
+ "CFAP-3 Sustainability Reporting and Assurance": [
+  {
+   "n": "A1",
+   "t": "Objective, scope and definitions (IFRS S1)",
+   "subs": [
+    "Sustainability-related risks and opportunities",
+    "Primary users and general purpose financial reports"
+   ]
+  },
+  {
+   "n": "A2",
+   "t": "Conceptual foundations",
+   "subs": [
+    "Fair presentation",
+    "Materiality judgments",
+    "Reporting entity",
+    "Connected information"
+   ]
+  },
+  {
+   "n": "A3",
+   "t": "Core content",
+   "subs": [
+    "Governance",
+    "Strategy",
+    "Risk management",
+    "Metrics and targets"
+   ]
+  },
+  {
+   "n": "A4",
+   "t": "General requirements",
+   "subs": [
+    "Sources of guidance",
+    "Location of disclosures",
+    "Timing of reporting",
+    "Comparative information",
+    "Statement of compliance"
+   ]
+  },
+  {
+   "n": "A5",
+   "t": "Judgments, uncertainties and errors",
+   "subs": [
+    "Measurement uncertainty and estimation",
+    "Correction of prior period errors"
+   ]
+  },
+  {
+   "n": "A6",
+   "t": "Qualitative characteristics",
+   "subs": [
+    "Relevance and faithful representation",
+    "Comparability, verifiability, timeliness, understandability"
+   ]
+  },
+  {
+   "n": "A7",
+   "t": "Effective date and transition",
+   "subs": [
+    "Transitional reliefs and first annual reporting period"
+   ]
+  },
+  {
+   "n": "A8",
+   "t": "Local sustainability regulation in Pakistan",
+   "subs": [
+    "SECP and regulatory expectations",
+    "Code of Corporate Governance interface",
+    "Adoption pathway for Pakistani entities"
+   ]
+  },
+  {
+   "n": "B1",
+   "t": "IFRS S2 objective, scope and defined terms",
+   "subs": [
+    "Climate-related physical and transition risks"
+   ]
+  },
+  {
+   "n": "B2",
+   "t": "IFRS S2 core content",
+   "subs": [
+    "Climate governance",
+    "Climate strategy and business model impact",
+    "Climate risk management",
+    "Climate metrics and targets"
+   ]
+  },
+  {
+   "n": "B3",
+   "t": "IFRS S2 application guidance",
+   "subs": [
+    "Climate resilience and scenario analysis",
+    "Greenhouse gases: Scope 1, 2 and 3",
+    "Cross-industry metric categories",
+    "Industry-based metrics",
+    "Climate-related targets and progress"
+   ]
+  },
+  {
+   "n": "B4",
+   "t": "SASB Standards: principles and concepts",
+   "subs": [
+    "Financial materiality and industry classification",
+    "Using SASB alongside IFRS S1 and S2"
+   ]
+  },
+  {
+   "n": "B5",
+   "t": "SASB disclosure topics and metrics by industry",
+   "subs": [
+    "Apparel, accessories and footwear",
+    "E-commerce",
+    "Oil and gas exploration and production",
+    "Iron and steel producers",
+    "Commercial banks",
+    "Agricultural products",
+    "Biotechnology and pharmaceuticals",
+    "Electric utilities and power generators",
+    "Chemicals",
+    "Professional and commercial services",
+    "Telecommunication services",
+    "Automobiles"
+   ]
+  },
+  {
+   "n": "C1",
+   "t": "Planning a sustainability assurance engagement",
+   "subs": [
+    "ISSA 5000 scope and engagement acceptance",
+    "Limited versus reasonable assurance",
+    "Understanding the entity and materiality",
+    "Risk assessment over sustainability information"
+   ]
+  },
+  {
+   "n": "C2",
+   "t": "Performing the engagement",
+   "subs": [
+    "Evidence over qualitative and quantitative metrics",
+    "Estimates, Scope 3 data and value chain information",
+    "Using the work of experts and other practitioners",
+    "Documentation"
+   ]
+  },
+  {
+   "n": "C3",
+   "t": "Concluding and reporting",
+   "subs": [
+    "Forming the conclusion",
+    "Content of the assurance report",
+    "Modified conclusions and emphasis of matter"
+   ]
+  },
+  {
+   "n": "C4",
+   "t": "Ethics for sustainability assurance",
+   "subs": [
+    "International Ethics Standards for Sustainability Assurance (IESSA)",
+    "Independence and threats in assurance engagements"
+   ]
+  }
+ ],
+ "CFAP-4 Strategic Business Finance": [
+  {
+   "n": "A1",
+   "t": "Business valuation",
+   "subs": [
+    "Dividend yield and dividend growth model",
+    "Price earnings and earnings-based methods",
+    "Discounted cash flow and free cash flow",
+    "Asset-based valuation"
+   ]
+  },
+  {
+   "n": "A2",
+   "t": "Acquisitions, mergers and reconstructions",
+   "subs": [
+    "Synergy and bid evaluation",
+    "Demergers, spin-offs and spin-outs",
+    "Form of consideration and post-deal effects"
+   ]
+  },
+  {
+   "n": "A3",
+   "t": "Project and strategy appraisal",
+   "subs": [
+    "NPV and adjusted present value",
+    "IRR, MIRR and EIRR",
+    "Payback, profitability index and capital rationing",
+    "Sensitivity and scenario analysis",
+    "Replacement analysis"
+   ]
+  },
+  {
+   "n": "A4",
+   "t": "Shareholder value",
+   "subs": [
+    "Dividend policy and irrelevance theory",
+    "Rights issues and yield-adjusted TERP",
+    "Effect on effective holding and wealth"
+   ]
+  },
+  {
+   "n": "A5",
+   "t": "Debt valuation",
+   "subs": [
+    "Effective interest cost discounting",
+    "Spot rates, yield to maturity and yield to call"
+   ]
+  },
+  {
+   "n": "B1",
+   "t": "Raising capital",
+   "subs": [
+    "Sources of equity and debt finance",
+    "Qualitative and quantitative evaluation of options"
+   ]
+  },
+  {
+   "n": "B2",
+   "t": "Capital budgeting and rationing",
+   "subs": [
+    "Single and multi-period rationing",
+    "Divisible and indivisible projects"
+   ]
+  },
+  {
+   "n": "B3",
+   "t": "Portfolio selection",
+   "subs": [
+    "Diversifiable and non-diversifiable risk",
+    "Correlation and covariance",
+    "Two, three and multi-asset portfolios"
+   ]
+  },
+  {
+   "n": "B4",
+   "t": "Cost of capital",
+   "subs": [
+    "WACC computation",
+    "CAPM, ungearing and regearing beta",
+    "Security market line, under and overvalued securities",
+    "Arbitrage pricing theory"
+   ]
+  },
+  {
+   "n": "B5",
+   "t": "Capital structure",
+   "subs": [
+    "Traditional theory",
+    "Modigliani and Miller with and without tax",
+    "Arbitrage gains on mispriced securities",
+    "Optimal capital structure"
+   ]
+  },
+  {
+   "n": "C1",
+   "t": "Interest rate risk management",
+   "subs": [
+    "Forward rate agreements",
+    "Interest rate futures and options",
+    "Swaps and swaptions"
+   ]
+  },
+  {
+   "n": "C2",
+   "t": "Foreign exchange risk management",
+   "subs": [
+    "Forwards and money market hedge",
+    "Currency futures and options",
+    "Currency swaps"
+   ]
+  },
+  {
+   "n": "C3",
+   "t": "Commodity and security risk",
+   "subs": [
+    "Forward and futures contracts"
+   ]
+  },
+  {
+   "n": "C4",
+   "t": "Liquidity and credit risk",
+   "subs": [
+    "Assessment and business implications",
+    "Managing exposure"
+   ]
+  }
+ ],
+ "CFAP-5 Tax Practices and Planning": [
+  {
+   "n": "A1",
+   "t": "Central concepts and scope of income tax",
+   "subs": [
+    "Sections 1 to 11, 74, 80 to 84",
+    "Resident status and tax year",
+    "Person, income and total income"
+   ]
+  },
+  {
+   "n": "A2",
+   "t": "Computation under the heads of income",
+   "subs": [
+    "Salary",
+    "Income from property",
+    "Income from business",
+    "Capital gains",
+    "Income from other sources",
+    "Sections 12 to 40"
+   ]
+  },
+  {
+   "n": "A3",
+   "t": "Tax regimes",
+   "subs": [
+    "Normal tax regime",
+    "Separate and final tax regimes",
+    "Minimum tax, sections 113 and 113C",
+    "Sections 168 to 169"
+   ]
+  },
+  {
+   "n": "A4",
+   "t": "Exemptions, losses, allowances and credits",
+   "subs": [
+    "Sections 41 to 55",
+    "Set off and carry forward of losses, 56 to 59B",
+    "Deductible allowances, 60 to 60D",
+    "Tax credits, 61 to 65F"
+   ]
+  },
+  {
+   "n": "A5",
+   "t": "Common rules, assets and source of income",
+   "subs": [
+    "Sections 66 to 79",
+    "Geographical source of income, 101 to 101A",
+    "Sections 86 to 100E"
+   ]
+  },
+  {
+   "n": "A6",
+   "t": "International taxation and anti-avoidance",
+   "subs": [
+    "Foreign source income of residents",
+    "Taxation of permanent establishments",
+    "Thin capitalisation",
+    "Avoidance of double taxation and model treaty",
+    "Anti-avoidance, sections 108 to 112"
+   ]
+  },
+  {
+   "n": "A7",
+   "t": "Returns, assessment, appeals and audit",
+   "subs": [
+    "Sections 114 to 126",
+    "Appeals, 127 to 136",
+    "Records, audit, penalties and offences, 174 to 204"
+   ]
+  },
+  {
+   "n": "A8",
+   "t": "Collection, recovery and withholding",
+   "subs": [
+    "Advance tax, section 147",
+    "Withholding provisions, 148 to 169 and 231AB to 236Z",
+    "Recovery, 137 to 146D",
+    "Refunds, 170 to 171A"
+   ]
+  },
+  {
+   "n": "A9",
+   "t": "Direct tax planning",
+   "subs": [
+    "Organizational strategies and structuring",
+    "Group taxation and reorganisation reliefs"
+   ]
+  },
+  {
+   "n": "B1",
+   "t": "Scope and payment of sales tax",
+   "subs": [
+    "Sections 1 to 13 and 73",
+    "Taxable supplies, zero rating and exemptions",
+    "Output and input tax computation"
+   ]
+  },
+  {
+   "n": "B2",
+   "t": "Input tax apportionment and refunds",
+   "subs": [
+    "Residual input tax apportionment",
+    "Carry forward and refund claims"
+   ]
+  },
+  {
+   "n": "B3",
+   "t": "Registration, records, invoicing and returns",
+   "subs": [
+    "Sections 14 to 29",
+    "Sales tax invoicing and record keeping",
+    "Returns and audit"
+   ]
+  },
+  {
+   "n": "B4",
+   "t": "Provincial and ICT sales tax on services",
+   "subs": [
+    "Common provisions across provincial laws",
+    "Place of supply and cross-jurisdiction issues"
+   ]
+  },
+  {
+   "n": "B5",
+   "t": "Administration, penalties, appeals and recovery",
+   "subs": [
+    "Sections 30 to 48",
+    "Offences and prosecution"
+   ]
+  },
+  {
+   "n": "B6",
+   "t": "Federal Excise Duty",
+   "subs": [
+    "Federal Excise Act 2005 sections 1 to 18",
+    "Levy, collection and payment"
+   ]
+  },
+  {
+   "n": "B7",
+   "t": "Indirect tax planning",
+   "subs": [
+    "Organizational strategies with respect to indirect taxation"
+   ]
+  },
+  {
+   "n": "C1",
+   "t": "Principles of fair taxation",
+   "subs": [
+    "Fair tax legislation",
+    "Equitable tax administration"
+   ]
+  },
+  {
+   "n": "C2",
+   "t": "Ethics in tax practice",
+   "subs": [
+    "Ethics for legislators, administrators and taxpayers",
+    "Code of Ethics section 600 for tax practitioners"
+   ]
+  }
+ ],
+ "CFAP-6 Audit, Assurance and Data": [
+  {
+   "n": "A1",
+   "t": "General principles and responsibilities",
+   "subs": [
+    "ISA 210 terms of engagement",
+    "ISA 230 audit documentation",
+    "ISA 240 fraud",
+    "ISA 250 (revised) laws and regulations",
+    "ISA 260 (revised) and ISA 265 communication"
+   ]
+  },
+  {
+   "n": "A2",
+   "t": "Risk assessment and audit strategy",
+   "subs": [
+    "ISA 315 (revised 2019) understanding the entity",
+    "ISA 320 materiality",
+    "ISA 330 responses to assessed risk",
+    "ISA 300 planning"
+   ]
+  },
+  {
+   "n": "A3",
+   "t": "Cyber risk and ICT",
+   "subs": [
+    "Identifying cyber risks in the audit",
+    "IT general controls and application controls",
+    "Conclusions on controls and cyber security"
+   ]
+  },
+  {
+   "n": "A4",
+   "t": "Data analytics in the audit",
+   "subs": [
+    "Using analytics to identify risk and controls",
+    "Adequacy of ICT processes and improvement recommendations",
+    "Knowledge and application of data analytics tools"
+   ]
+  },
+  {
+   "n": "A5",
+   "t": "Audit evidence",
+   "subs": [
+    "ISA 500 and ISA 501",
+    "ISA 505 external confirmations",
+    "ISA 520 analytical procedures",
+    "ISA 530 audit sampling",
+    "Contradictory evidence and its effect on judgment"
+   ]
+  },
+  {
+   "n": "A6",
+   "t": "Accounting estimates",
+   "subs": [
+    "ISA 540 (revised) estimates and related disclosures"
+   ]
+  },
+  {
+   "n": "A7",
+   "t": "Group audits and using the work of others",
+   "subs": [
+    "ISA 600 (revised) group audits and component auditors",
+    "ISA 610 (revised) internal auditors",
+    "ISA 620 auditor's expert",
+    "ISA 402 service organizations"
+   ]
+  },
+  {
+   "n": "A8",
+   "t": "Specific ISA considerations",
+   "subs": [
+    "ISA 570 (revised) going concern",
+    "ISA 550 related parties",
+    "ISA 580 written representations",
+    "ISA 560 subsequent events",
+    "ISA 510 opening balances",
+    "ISA 450 evaluation of misstatements"
+   ]
+  },
+  {
+   "n": "B1",
+   "t": "Forming and reporting the opinion",
+   "subs": [
+    "ISA 700 (revised) forming an opinion"
+   ]
+  },
+  {
+   "n": "B2",
+   "t": "Key audit matters",
+   "subs": [
+    "ISA 701 communicating key audit matters"
+   ]
+  },
+  {
+   "n": "B3",
+   "t": "Modifications and additional paragraphs",
+   "subs": [
+    "ISA 705 (revised) modified opinions",
+    "ISA 706 (revised) emphasis of matter and other matter"
+   ]
+  },
+  {
+   "n": "B4",
+   "t": "Comparatives and other information",
+   "subs": [
+    "ISA 710 comparative information",
+    "ISA 720 (revised) other information"
+   ]
+  },
+  {
+   "n": "C1",
+   "t": "Special purpose and single statement audits",
+   "subs": [
+    "ISA 800 (revised)",
+    "ISA 805 (revised)",
+    "ISA 810 (revised) summary financial statements"
+   ]
+  },
+  {
+   "n": "C2",
+   "t": "Review engagements",
+   "subs": [
+    "ISRE 2400 review of historical financial statements",
+    "ISRE 2410 interim review"
+   ]
+  },
+  {
+   "n": "C3",
+   "t": "Other assurance engagements",
+   "subs": [
+    "ISAE 3000 assurance other than audits or reviews",
+    "Amended international framework for assurance engagements"
+   ]
+  },
+  {
+   "n": "C4",
+   "t": "Prospective and pro forma information",
+   "subs": [
+    "ISAE 3400 prospective financial information",
+    "ISAE 3420 pro forma information in a prospectus"
+   ]
+  },
+  {
+   "n": "C5",
+   "t": "Controls at a service organization",
+   "subs": [
+    "ISAE 3402 assurance reports on controls"
+   ]
+  },
+  {
+   "n": "C6",
+   "t": "Greenhouse gas statements",
+   "subs": [
+    "ISAE 3410 assurance on greenhouse gas statements"
+   ]
+  },
+  {
+   "n": "C7",
+   "t": "Related services",
+   "subs": [
+    "ISRS 4400 (revised) agreed-upon procedures",
+    "ISRS 4410 compilation engagements"
+   ]
+  },
+  {
+   "n": "D1",
+   "t": "Code of Ethics in complex scenarios",
+   "subs": [
+    "Threats, safeguards and independence",
+    "Addressing an ethical threat"
+   ]
+  },
+  {
+   "n": "D2",
+   "t": "Quality management",
+   "subs": [
+    "ISQM 1 and ISQM 2",
+    "ISA 220 (revised) engagement quality",
+    "ICAP quality control framework, QAB and Audit Oversight Board"
+   ]
+  },
+  {
+   "n": "D3",
+   "t": "Professional misconduct",
+   "subs": [
+    "Chartered Accountants Ordinance 1961 Chapter V-A",
+    "Schedules I, II and III"
+   ]
+  }
+ ],
+ "Strategic Case Study": [
+  {
+   "n": "A1",
+   "t": "Strategic analysis",
+   "subs": [
+    "External environment and industry analysis",
+    "Internal capability and resource analysis",
+    "Stakeholder analysis"
+   ]
+  },
+  {
+   "n": "A2",
+   "t": "Strategic choice and implementation",
+   "subs": [
+    "Evaluating and selecting strategic options",
+    "Competitive advantage",
+    "Implementation, change management and risk"
+   ]
+  },
+  {
+   "n": "B1",
+   "t": "Information and performance data",
+   "subs": [
+    "Using information to develop competitive advantage",
+    "Data analytics and AI in strategic decisions",
+    "Information systems and control"
+   ]
+  },
+  {
+   "n": "C1",
+   "t": "Strategic human resource management",
+   "subs": [
+    "Impact of HRM on business strategy",
+    "Appraisal and performance management",
+    "Remuneration and reward packages",
+    "HRM, change management and organizational behaviour"
+   ]
+  },
+  {
+   "n": "D1",
+   "t": "Strategic performance management",
+   "subs": [
+    "Information for strategic decision making",
+    "Performance measurement tools",
+    "Rewards, behaviour and performance"
+   ]
+  },
+  {
+   "n": "D2",
+   "t": "Financial and non-financial performance",
+   "subs": [
+    "Financial performance measurement",
+    "Non-financial indicators",
+    "ESG, sustainability and integrated reporting",
+    "Corporate social responsibility"
+   ]
+  },
+  {
+   "n": "E1",
+   "t": "Governance and ethics in the case",
+   "subs": [
+    "Corporate governance failures and remedies",
+    "Ethical conflicts and professional duty",
+    "Advising and communicating with stakeholders"
+   ]
+  }
+ ]
+};
+
+
+async function load(){
+  try{
+    const r = await window.storage.get(KEY);
+    if(r && r.value) S.d = Object.assign(S.d, JSON.parse(r.value));
+  }catch(e){ if(mem[KEY]) S.d = Object.assign(S.d, mem[KEY]); }
+}
+async function save(){
+  mem[KEY] = S.d;
+  try{ await window.storage.set(KEY, JSON.stringify(S.d)); }catch(e){}
+}
+const $ = s => document.querySelector(s);
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function md(t){
+  if(!t) return "";
+  const lines = esc(t).split(/\r?\n/);
+  let out="", list=null;
+  const inline = s => s
+    .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*]+)\*/g,"$1<em>$2</em>")
+    .replace(/`([^`]+)`/g,"<code>$1</code>");
+  const shut = () => { if(list){ out += "</"+list+">"; list=null; } };
+  for(const ln of lines){
+    const s = ln.trim();
+    if(!s){ shut(); continue; }
+    let m;
+    if((m = s.match(/^#{1,4}\s*(.+)$/))){ shut(); out += "<h4>"+inline(m[1])+"</h4>"; continue; }
+    if((m = s.match(/^[-*\u2022]\s+(.+)$/))){ if(list!=="ul"){shut(); out+="<ul>"; list="ul";} out += "<li>"+inline(m[1])+"</li>"; continue; }
+    if((m = s.match(/^\d+[.)]\s+(.+)$/))){ if(list!=="ol"){shut(); out+="<ol>"; list="ol";} out += "<li>"+inline(m[1])+"</li>"; continue; }
+    shut(); out += "<p>"+inline(s)+"</p>";
+  }
+  shut(); return out;
+}
+
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+let APIKEY = "";
+let PROVIDER = "claude";
+let gemModel = null;          // the model actually in use
+let gemAvailable = null;      // cached ListModels result
+let gemPinned = localStorage.getItem("mg_gem_model") || "";
+
+// Score a model name so the best study-suitable one floats to the top.
+// Newer generation wins; within a generation, Flash beats Flash-Lite beats Pro
+// (Pro is slow and burns a free-tier quota fast).
+function gemScore(id){
+  const m = id.match(/gemini-(\d+)(?:\.(\d+))?/);
+  if(!m) return -1;
+  const gen = parseInt(m[1],10)*100 + (m[2]?parseInt(m[2],10):0);
+  let tier = 0;
+  if(/flash-lite/.test(id))      tier = 2;
+  else if(/flash/.test(id))      tier = 3;
+  else if(/pro/.test(id))        tier = 1;
+  let bonus = 0;
+  if(/preview|exp|experimental|latest|tuning/.test(id)) bonus -= 40; // unstable or moving target
+  return gen*10 + tier + bonus;
+}
+
+// Models that exist but are wrong for reading a textbook and writing answers.
+const GEM_REJECT = /embedding|aqa|image|imagen|veo|tts|audio|native-audio|live|robotics|gemma|learnlm|cyber/i;
+
+async function listGeminiModels(){
+  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key="+encodeURIComponent(APIKEY));
+  if(!res.ok){
+    const body = await res.text().catch(()=>"");
+    throw new Error("Google refused the key list ("+res.status+"). "+body.slice(0,180));
+  }
+  const data = await res.json();
+  const usable = (data.models||[])
+    .filter(m => (m.supportedGenerationMethods||[]).indexOf("generateContent") >= 0)
+    .map(m => String(m.name||"").replace(/^models\//,""))
+    .filter(id => id.indexOf("gemini") === 0 && !GEM_REJECT.test(id))
+    .sort((a,b) => gemScore(b) - gemScore(a));
+  if(!usable.length) throw new Error("This key has no Gemini text models attached to it. Make a fresh key at aistudio.google.com.");
+  return usable;
+}
+
+async function ensureGemModel(){
+  if(gemModel) return gemModel;
+  gemAvailable = await listGeminiModels();
+  gemModel = (gemPinned && gemAvailable.indexOf(gemPinned) >= 0) ? gemPinned : gemAvailable[0];
+  fillModelPicker();
+  return gemModel;
+}
+const OFFLINE_MSG = "Can't reach the model. Two free ways to fix this: (1) open this tool from inside Claude instead of a downloaded file, or (2) switch the dropdown to Google, paste a free Google AI Studio key, and it will work standalone in Chrome.";
+
+async function callAnthropic(system, user, tokens){
+  const headers = {"Content-Type":"application/json"};
+  if(APIKEY){
+    headers["x-api-key"] = APIKEY;
+    headers["anthropic-version"] = "2023-06-01";
+    headers["anthropic-dangerous-direct-browser-access"] = "true";
+  }
+  const res = await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST", headers: headers,
+    body: JSON.stringify({
+      model: APIKEY ? "claude-sonnet-4-5-20250929" : "claude-sonnet-4-6",
+      max_tokens: tokens || 1000,
+      system: system,
+      messages:[{role:"user",content:user}]
+    })
+  });
+  if(!res.ok) return {ok:false, status:res.status, body: await res.text().catch(()=>"")};
+  const data = await res.json();
+  return {ok:true, text:(data.content||[]).map(b=>b.type==="text"?b.text:"").join("\n").trim()};
+}
+
+function gemBody(system, user, tokens, mdl){
+  const cfg = { maxOutputTokens: (tokens||1000)*3 };
+  if(/gemini-[3-9]/.test(mdl)){
+    // 3.x retired temperature/top_p/top_k. Thinking is on by default and eats
+    // the output budget, so keep it short for recall and marking work.
+    cfg.thinkingConfig = { thinkingLevel: "low" };
+  }else{
+    cfg.temperature = 0.7;
+    if(/2\.5-flash/.test(mdl)) cfg.thinkingConfig = { thinkingBudget: 0 };
+  }
+  return JSON.stringify({
+    system_instruction:{parts:[{text:system}]},
+    contents:[{role:"user",parts:[{text:user}]}],
+    generationConfig: cfg
+  });
+}
+
+async function callGemini(system, user, tokens, isRetry){
+  let mdl;
+  try{
+    mdl = await ensureGemModel();
+  }catch(e){
+    return {ok:false, status:0, body:String(e.message||e)};
+  }
+  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+mdl+":generateContent?key="+encodeURIComponent(APIKEY),{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: gemBody(system, user, tokens, mdl)
+  });
+  if(!res.ok){
+    const body = await res.text().catch(()=>"");
+    // Model retired underneath us: forget it, re-list, try once more.
+    if((res.status===404 || res.status===400) && !isRetry){
+      gemModel = null; gemPinned = ""; try{localStorage.removeItem("mg_gem_model");}catch(e){}
+      return callGemini(system, user, tokens, true);
+    }
+    return {ok:false, status:res.status, body:(mdl+" — "+body)};
+  }
+  const data = await res.json();
+  const cand = (data.candidates||[])[0] || {};
+  const txt = ((cand.content||{}).parts||[]).map(p=>p.text||"").join("\n").trim();
+  if(!txt && cand.finishReason === "MAX_TOKENS")
+    return {ok:false, status:0, body:"The model spent its budget thinking and wrote nothing. Ask for a shorter answer, or pick a Flash-Lite model."};
+  if(!txt && cand.finishReason === "SAFETY")
+    return {ok:false, status:0, body:"Google's safety filter blocked this passage. Select a smaller extract."};
+  return {ok:true, text:txt};
+}
+
+async function callAPI(system, user, tokens){
+  if(PROVIDER==="gemini"){
+    if(!APIKEY) return {ok:false, status:0, body:"Paste your free Google AI Studio key first."};
+    return callGemini(system, user, tokens);
+  }
+  return callAnthropic(system, user, tokens);
+}
+
+async function ask(system, user, tokens){
+  let last = null;
+  for(let i=0;i<3;i++){
+    let r;
+    try{
+      r = await callAPI(system, user, tokens);
+    }catch(e){
+      last = new Error(OFFLINE_MSG);
+      await sleep(700*(i+1));
+      continue;
+    }
+    if(r.ok){
+      if(!r.text) throw new Error("Model returned nothing. Try again.");
+      return r.text;
+    }
+    if(r.status===429 || r.status>=500){
+      last = new Error("Model is busy ("+r.status+"). Retrying…");
+      await sleep(1800*(i+1));
+      continue;
+    }
+    throw new Error("Request refused ("+r.status+"). "+String(r.body||"").slice(0,200));
+  }
+  throw last || new Error(OFFLINE_MSG);
+}
+function asJSON(t){
+  const s = t.replace(/```json/gi,"").replace(/```/g,"").trim();
+  const a = s.indexOf("{"), b = s.lastIndexOf("}");
+  if(a<0||b<0) throw new Error("Could not read the reply. Try again.");
+  return JSON.parse(s.slice(a,b+1));
+}
+const spin = m => '<div class="load"><span class="dot"></span>'+esc(m)+'</div>';
+const oops = m => '<div class="err">'+esc(m)+'</div>';
+
+const TUTOR = `You are a CFAP-level tutor for an ICAP (Institute of Chartered Accountants of Pakistan) final-stage student who studies alone from PDF textbooks.
+
+You explain in ROMAN URDU — Urdu written in English letters, the way Pakistanis text each other. Keep all technical terms, standard names and account titles in English (e.g. "deferred tax", "IFRS 16", "right-of-use asset"). Never use Urdu script.
+
+Rules:
+- Start from what the student actually finds hard: the WHY behind the treatment, not a restatement of the text.
+- Always include one concrete example set in Pakistan: a local-sounding company, PKR figures, realistic amounts. Show the numbers or entries.
+- Be accurate. If the selected text is garbled or cut off mid-sentence, say what you think it is about and explain that.
+- The syllabus is ICAP's Education and Training Scheme 2025. If the passage is on sustainability, work from IFRS S1, IFRS S2, ISSA 5000, IESSA and the SASB standards rather than older voluntary frameworks, and say plainly where a Pakistani entity's obligation currently sits.
+- No preamble, no "sure", no closing pleasantries. Start straight with the explanation.
+- Use short markdown headings and bullets. Keep it tight — this student is short on time.`;
+
+const MODES = {
+  asaan:"MODE: ASAAN. Ek simple explanation, roughly 120-180 words, plus a short Pakistan example. Bilkul basic zubaan.",
+  tafseel:"MODE: TAFSEEL. Full breakdown: kya hai, kyun hai (the logic behind it), kaise apply hota hai step by step, aur common galtiyan. Include the example with entries or a small working.",
+  exam:"MODE: EXAM ANGLE. Explain the concept briefly, then focus on how ICAP tests it: kis tarah ka scenario aata hai, kaunse hidden issues plant kiye jaate hain, aur answer mein exactly kya likhna hai marks lene ke liye. End with a bulleted 'Exam mein likhna hai' checklist."
+};
+
+const EXAMINER = `You are a senior examiner and marker for the Institute of Chartered Accountants of Pakistan (ICAP), marking a CFAP or Strategic Case Study answer script under the Education and Training Scheme 2025. You mark strictly against the official marking scheme. Candidates find you harsh. You are fair, but you never inflate.
+
+Marking rules you apply without exception:
+- Award marks ONLY for points the candidate has actually written. Never credit what they "probably know", implied, or would have written with more time.
+- Half marks (0.5) are allowed.
+- A conclusion with no justification scores nothing. Reasoning with no conclusion scores partial only.
+- Where the topic demands it, the answer must cite the relevant authority — IFRS/IAS number, IFRS S1 or S2 paragraph area, ISSA 5000, ISA/ISAE number, section of the Companies Act 2017, or section of the Income Tax Ordinance 2001. A missing reference is a lost mark.
+- On CFAP-3, a sustainability answer that describes good intentions without tying disclosure to the four core content pillars (governance, strategy, risk management, metrics and targets), or an assurance answer that does not distinguish limited from reasonable assurance, is a weak answer whatever its length.
+- Reproducing the scenario, dumping theory that was not asked for, or answering something other than the Required earns zero for that portion.
+- Presentation is marked: where a working, journal entry, table or heading was required, unstructured prose loses marks.
+- Calculation errors — allow method marks, but a wrong figure carries forward with no further credit on that line.
+- Do not reward length. A long weak answer is a weak answer.
+- Real candidates typically score 40-55%. If this answer is weak, give it the low mark it deserves and say why plainly.
+
+Your examiner's comments follow the register of ICAP's published examiners' comments: direct, unsentimental, naming the specific failing and what a competent candidate would have done instead. No encouragement, no softening. Two to four sentences.
+
+Reply with ONLY a JSON object, no prose outside it, no markdown fences:
+{
+ "marks_awarded": number,
+ "marks_total": number,
+ "breakdown": [{"point":"the specific point required","available":number,"given":number,"note":"one short line on what the candidate did or missed"}],
+ "marks_lost": ["specific thing that cost marks"],
+ "examiner_comments": "English. ICAP examiner register. Direct.",
+ "roman_urdu_feedback": "Roman Urdu (Urdu in English letters, technical terms in English). Kya galat hua aur agli dafa kya karna hai. 3-5 sentences, seedhi baat.",
+ "model_answer": "The marks-earning answer, in English, as tight structured points and workings a candidate could actually write in the time. Under 200 words.",
+ "error_types": ["choose only from: Conceptual gap, Ignored the Required, No standard/section reference, Conclusion without justification, Poor presentation, Calculation error, Irrelevant content, Incomplete — ran out of points"],
+ "topics": ["specific topic label, e.g. IFRS 16 sale and leaseback"]
+}
+Keep breakdown to at most 8 entries. The given marks in breakdown must sum to marks_awarded.`;
+
+const SETTER = `You are an ICAP examiner setting a question under the Education and Training Scheme 2025 (CFAP and Strategic Case Study). Your questions match the real paper: a business scenario set in Pakistan (local company names, PKR, Pakistani regulatory context), with issues embedded rather than announced, and a clear Required carrying mark allocations.
+
+Standards to hold: the scenario must contain the specific facts needed to answer, dates and figures must be internally consistent, and at least one issue should be one that weak candidates miss. Do not include the answer or any hints.
+
+Stay inside the syllabus grid supplied for the paper — do not set a question on content that belongs to a different paper. Respect ICAP's testing levels when sizing the requirement: a level 1 topic is worth at most 8 marks, level 2 at most 20, level 3 at most 25. For CFAP-3 Sustainability Reporting and Assurance, build the scenario around a real Pakistani reporting context — a listed manufacturer, bank, textile exporter or power generator facing IFRS S1/S2 disclosure decisions or an ISSA 5000 assurance engagement — and use the SASB industry standard that fits the entity.
+
+Reply with ONLY a JSON object, no fences:
+{
+ "scenario":"The question scenario. Use blank lines between paragraphs. Include all figures and dates needed.",
+ "requirements":[{"label":"(a)","text":"what the candidate must do","marks":number}],
+ "total_marks":number,
+ "minutes":number,
+ "topics":["specific topic labels"]
+}`;
+
+
+// Feed the real syllabus grid into the setter and the marker so questions and
+// marks sit inside what ICAP actually examines for that paper.
+function paperBrief(name){
+  const y = SYLLABUS[name];
+  if(!y) return "Paper: " + name;
+  return "Paper: " + name +
+    "\nScheme: ICAP Education and Training Scheme 2025 (syllabus as examinable from the Autumn 2026 attempt)." +
+    "\nSyllabus grid and weightings: " + y.grid +
+    "\nExaminable knowledge: " + y.core +
+    "\nExaminer's note: " + y.heavy;
+}
+
+document.querySelectorAll(".tab").forEach(t=>{
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach(x=>x.setAttribute("aria-selected", x===t?"true":"false"));
+    document.querySelectorAll(".view").forEach(v=>v.classList.remove("on"));
+    $("#v-"+t.dataset.v).classList.add("on");
+    if(t.dataset.v==="progress") drawProgress();
+    if(t.dataset.v==="cards") drawCards();
+  };
+});
+function goTab(v){ document.querySelector('.tab[data-v="'+v+'"]').click(); }
+
+PAPERS.forEach(p=>{
+  ["#pPaper","#mPaper"].forEach(sel=>{
+    const o = document.createElement("option"); o.textContent = p; $(sel).appendChild(o);
+  });
+});
+
+function opt(value, label){
+  const o = document.createElement("option"); o.value = value; o.textContent = label; return o;
+}
+
+// Topic dropdown for the Practice tab, rebuilt whenever the paper changes.
+function fillTopics(){
+  const list = TOPICS[$("#pPaper").value] || [];
+  const sel = $("#pTopicMain");
+  sel.innerHTML = "";
+  sel.appendChild(opt("", "Anywhere in the syllabus"));
+  list.forEach(m => sel.appendChild(opt(m.n, m.n + "  " + m.t)));
+  fillSubTopics();
+}
+function fillSubTopics(){
+  const list = TOPICS[$("#pPaper").value] || [];
+  const main = list.find(m => m.n === $("#pTopicMain").value);
+  const sel = $("#pTopicSub");
+  sel.innerHTML = "";
+  if(!main){
+    sel.appendChild(opt("", "—"));
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  sel.appendChild(opt("", "Whole topic"));
+  (main.subs||[]).forEach(x => sel.appendChild(opt(x, x)));
+}
+
+// The mock tab keeps a free-text list; the dropdown just appends to it.
+function fillMockTopics(){
+  const list = TOPICS[$("#mPaper").value] || [];
+  const sel = $("#mTopicPick");
+  sel.innerHTML = "";
+  sel.appendChild(opt("", "Choose a topic to add"));
+  list.forEach(m => {
+    sel.appendChild(opt(m.n + " " + m.t, m.n + "  " + m.t));
+    (m.subs||[]).forEach(x => sel.appendChild(opt(x, "     " + x)));
+  });
+}
+
+$("#pPaper").onchange = fillTopics;
+$("#pTopicMain").onchange = fillSubTopics;
+$("#mPaper").onchange = fillMockTopics;
+$("#mTopicPick").onchange = e => {
+  const v = e.target.value;
+  if(!v) return;
+  const box = $("#mTopics");
+  const have = box.value.split(",").map(x=>x.trim()).filter(Boolean);
+  if(have.indexOf(v) < 0) have.push(v);
+  box.value = have.join(", ");
+  e.target.selectedIndex = 0;
+};
+fillTopics();
+fillMockTopics();
+
+// What the question setter is actually told to examine.
+function chosenTopic(){
+  const list = TOPICS[$("#pPaper").value] || [];
+  const main = list.find(m => m.n === $("#pTopicMain").value);
+  const sub = $("#pTopicSub").value;
+  const extra = $("#pTopic").value.trim();
+  const bits = [];
+  if(main) bits.push("Syllabus reference " + main.n + " — " + main.t);
+  if(sub) bits.push("Sub-topic: " + sub);
+  if(extra) bits.push("Focus specifically on: " + extra);
+  if(!bits.length) return "Examiner's choice — pick a high-weighting area of this paper.";
+  return bits.join("\n");
+}
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+$("#pick").onclick = () => $("#file").click();
+$("#file").onchange = e => { if(e.target.files[0]) openPdf(e.target.files[0]); };
+const drop = $("#drop");
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hot");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("hot");}));
+drop.addEventListener("drop",e=>{ const f=e.dataTransfer.files[0]; if(f && f.type==="application/pdf") openPdf(f); });
+
+async function openPdf(file){
+  try{
+    const buf = await file.arrayBuffer();
+    S.pdf = await pdfjsLib.getDocument({data:buf}).promise;
+    S.fname = file.name; S.page = 1;
+    $("#fname").textContent = file.name;
+    $("#pcount").textContent = S.pdf.numPages;
+    $("#drop").classList.add("hidden");
+    $("#viewer").classList.remove("hidden");
+    render();
+  }catch(err){
+    $("#drop").insertAdjacentHTML("afterbegin", oops("That file wouldn't open. Check it's a valid PDF and not password protected."));
+  }
+}
+$("#close").onclick = () => { S.pdf=null; $("#viewer").classList.add("hidden"); $("#drop").classList.remove("hidden"); $("#file").value=""; };
+$("#prev").onclick = () => { if(S.page>1){S.page--;render();} };
+$("#next").onclick = () => { if(S.pdf && S.page<S.pdf.numPages){S.page++;render();} };
+$("#zin").onclick = () => { S.scale=Math.min(3,S.scale+0.15); render(); };
+$("#zout").onclick = () => { S.scale=Math.max(0.5,S.scale-0.15); render(); };
+$("#pnum").onchange = e => {
+  const n = parseInt(e.target.value,10);
+  if(S.pdf && n>=1 && n<=S.pdf.numPages){ S.page=n; render(); } else e.target.value = S.page;
+};
+
+async function render(){
+  if(!S.pdf) return;
+  $("#pnum").value = S.page;
+  const page = await S.pdf.getPage(S.page);
+  const vp = page.getViewport({scale:S.scale});
+  const cv = $("#cv"), ctx = cv.getContext("2d");
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  cv.width = Math.floor(vp.width*dpr); cv.height = Math.floor(vp.height*dpr);
+  cv.style.width = vp.width+"px"; cv.style.height = vp.height+"px";
+  const box = $("#pageBox");
+  box.style.width = vp.width+"px"; box.style.height = vp.height+"px";
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  await page.render({canvasContext:ctx, viewport:vp}).promise;
+
+  const tl = $("#tl");
+  tl.innerHTML = ""; tl.style.width = vp.width+"px"; tl.style.height = vp.height+"px";
+  tl.style.setProperty("--scale-factor", S.scale);
+  const tc = await page.getTextContent();
+  let ok = false;
+  try{
+    if(typeof pdfjsLib.renderTextLayer === "function"){
+      const task = pdfjsLib.renderTextLayer({ textContentSource: tc, textContent: tc, container: tl, viewport: vp, textDivs: [] });
+      if(task && task.promise) await task.promise;
+      ok = tl.childElementCount > 0;
+    }
+  }catch(e){ ok = false; }
+  if(!ok){
+    tl.innerHTML = "";
+    tc.items.forEach(it=>{
+      if(!it.str) return;
+      const tx = pdfjsLib.Util.transform(vp.transform, it.transform);
+      const h = Math.hypot(tx[2],tx[3]);
+      const sp = document.createElement("span");
+      sp.textContent = it.str;
+      sp.style.left = tx[4]+"px";
+      sp.style.top = (tx[5]-h)+"px";
+      sp.style.fontSize = h+"px";
+      sp.style.fontFamily = "sans-serif";
+      tl.appendChild(sp);
+    });
+  }
+}
+
+const chip = $("#chip");
+document.addEventListener("mouseup", place);
+document.addEventListener("touchend", () => setTimeout(place,90));
+function place(){
+  const s = window.getSelection();
+  const txt = s ? s.toString().trim() : "";
+  if(txt.length < 8 || !s.anchorNode || !$("#tl").contains(s.anchorNode)){ chip.classList.remove("on"); return; }
+  S.sel = txt.replace(/\s+/g," ");
+  const r = s.getRangeAt(0).getBoundingClientRect();
+  chip.style.left = Math.max(8, Math.min(window.innerWidth-200, r.left)) + "px";
+  chip.style.top = Math.max(8, r.top - 46) + "px";
+  chip.classList.add("on");
+}
+$("#chipExplain").onclick = () => { chip.classList.remove("on"); explain(); };
+$("#chipAsk").onclick = () => {
+  chip.classList.remove("on");
+  $("#pTopic").value = S.sel.slice(0,120);
+  goTab("practice");
+  $("#qHint").textContent = "Topic filled from your selection. Set the level and generate.";
+};
+
+$("#modeSeg").querySelectorAll("button").forEach(b=>{
+  b.onclick = () => {
+    S.mode = b.dataset.m;
+    $("#modeSeg").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed", x===b?"true":"false"));
+    if(S.sel) explain();
+  };
+});
+
+async function explain(){
+  const body = $("#exBody");
+  const q = '<blockquote class="quote">'+esc(S.sel.slice(0,420))+(S.sel.length>420?"…":"")+'</blockquote>';
+  body.innerHTML = q + spin("Samjha raha hoon");
+  try{
+    const t = await ask(TUTOR, MODES[S.mode]+"\n\nBook se selected text:\n\"\"\""+S.sel+"\"\"\"", 1000);
+    body.innerHTML = q + '<div class="prose">'+md(t)+'</div>'+
+      '<div class="panel-actions"><button class="btn sm" id="mkCard">Make flashcard</button>'+
+      '<button class="btn ghost sm" id="toQ">Question on this</button></div>';
+    S.d.concepts.unshift({ t:S.sel.slice(0,160), when:Date.now(), mode:S.mode });
+    S.d.concepts = S.d.concepts.slice(0,150);
+    save();
+    $("#mkCard").onclick = mkCard;
+    $("#toQ").onclick = $("#chipAsk").onclick;
+  }catch(e){ body.innerHTML = q + oops(e.message); }
+}
+
+async function mkCard(){
+  const btn = $("#mkCard"); btn.disabled = true; btn.textContent = "Making…";
+  try{
+    const t = await ask(
+      'You write exam flashcards. Reply with ONLY JSON, no fences: {"front":"a question that forces recall of the key point (English)","back":"the answer — Roman Urdu explanation with technical terms in English, under 60 words","topic":"short topic label"}',
+      'Concept text:\n"""'+S.sel.slice(0,1200)+'"""', 500);
+    const c = asJSON(t);
+    S.d.cards.push({ id:Date.now()+"", front:c.front, back:c.back, topic:c.topic||"General", due:Date.now(), step:0 });
+    await save(); badge();
+    btn.textContent = "Added to deck";
+  }catch(e){ btn.disabled=false; btn.textContent = "Try again"; }
+}
+
+$("#genQ").onclick = async () => {
+  const topic = chosenTopic();
+  $("#qHint").textContent = "";
+  $("#qWrap").innerHTML = '<div class="sheet">'+spin("Question set kar raha hoon")+'</div>';
+  try{
+    const t = await ask(SETTER,
+      paperBrief($("#pPaper").value)+
+      "\n"+topic+
+      "\nDifficulty: "+$("#pLevel").value+
+      "\nQuestion style: "+$("#pStyle").value+
+      "\nTotal marks: "+$("#pMarks").value+
+      "\nSet one question.", 1500);
+    S.q = asJSON(t);
+    S.q.paper = $("#pPaper").value;
+    drawQ();
+  }catch(e){ $("#qWrap").innerHTML = '<div class="sheet">'+oops(e.message)+'</div>'; }
+};
+
+function reqHtml(q){
+  return (q.requirements||[]).map(r=>
+    '<div class="rq"><span class="lab">'+esc(r.label||"")+'</span><span class="txt">'+md(r.text)+
+    '</span><span class="mk">'+esc(r.marks)+' marks</span></div>').join("");
+}
+function drawQ(){
+  const q = S.q;
+  $("#qWrap").innerHTML =
+  '<div class="sheet"><div class="qpaper">'+
+    '<div class="qhead"><h2 class="title">Question</h2><span class="meta">'+esc(q.paper)+' &nbsp;·&nbsp; '+
+    esc(q.total_marks)+' marks &nbsp;·&nbsp; '+esc(q.minutes||Math.round(q.total_marks*1.8))+' min</span></div>'+
+    '<div class="scenario">'+md(q.scenario)+'</div>'+
+    '<div class="reqs"><p class="eyebrow" style="margin-bottom:4px">Required</p>'+reqHtml(q)+'</div>'+
+  '</div></div>'+
+  '<div class="sheet"><p class="eyebrow">Your answer</p>'+
+    '<textarea id="ans" rows="14" placeholder="Answer likhein — headings, points, workings. Jaise real paper mein likhte hain."></textarea>'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px">'+
+      '<button class="btn red" id="mark">Submit for marking</button><span class="muted" id="wc">0 words</span></div>'+
+    '<div id="result" style="margin-top:20px"></div></div>';
+  const ta = $("#ans");
+  ta.oninput = () => { $("#wc").textContent = (ta.value.trim().match(/\S+/g)||[]).length + " words"; };
+  $("#mark").onclick = () => markOne(S.q, ta.value, $("#result"), $("#mark"));
+}
+
+async function markOne(q, answer, target, btn){
+  if(!answer.trim()){ target.innerHTML = oops("Nothing to mark. Write the answer first."); return; }
+  if(btn){ btn.disabled = true; btn.textContent = "Marking…"; }
+  target.innerHTML = spin("Examiner is marking");
+  try{
+    const t = await ask(EXAMINER,
+      paperBrief(q.paper||"")+
+      "\nQUESTION SCENARIO:\n"+q.scenario+
+      "\n\nREQUIRED:\n"+(q.requirements||[]).map(r=>r.label+" "+r.text+" ("+r.marks+" marks)").join("\n")+
+      "\n\nTOTAL MARKS: "+q.total_marks+
+      "\n\nCANDIDATE'S ANSWER (verbatim, written under exam conditions):\n\"\"\""+answer+"\"\"\"\n\nMark it.", 1800);
+    const m = asJSON(t);
+    target.innerHTML = scriptHtml(m);
+    S.d.attempts.unshift({
+      when:Date.now(), paper:q.paper||"", topics:m.topics||q.topics||[],
+      got:+m.marks_awarded, tot:(+m.marks_total)||(+q.total_marks),
+      errs:m.error_types||[], comments:m.examiner_comments||""
+    });
+    S.d.attempts = S.d.attempts.slice(0,400);
+    await save(); badge();
+    if(btn){ btn.disabled=false; btn.textContent="Re-mark"; }
+  }catch(e){
+    target.innerHTML = oops(e.message);
+    if(btn){ btn.disabled=false; btn.textContent="Submit for marking"; }
+  }
+}
+
+function penClass(g,a){ if(g<=0) return "none"; if(g<a) return "part"; return "got"; }
+function frac(n){
+  n = +n;
+  if(Number.isNaN(n)) return "0";
+  const w = Math.floor(n), r = n-w;
+  if(Math.abs(r-0.5)<0.01) return (w? w:"")+"½";
+  return String(Math.round(n*10)/10);
+}
+function scriptHtml(m){
+  const got = +m.marks_awarded, tot = (+m.marks_total)||1;
+  const pc = Math.round(got/tot*100);
+  const pass = pc>=50;
+  const rows = (m.breakdown||[]).map((b,i)=>
+    '<div class="gline" style="animation-delay:'+(.18+i*.07)+'s">'+
+      '<div class="pt">'+esc(b.point)+(b.note?'<em>'+esc(b.note)+'</em>':"")+'</div>'+
+      '<div class="pen '+penClass(+b.given,+b.available)+'">'+frac(b.given)+
+      '<span style="font-size:14px;opacity:.6"> / '+frac(b.available)+'</span></div></div>').join("");
+  return '<div class="script">'+
+    '<div class="script-top"><div>'+
+      '<span class="verdict '+(pass?"pass":"fail")+'">'+(pass?"Above the line":"Below the pass mark")+' · '+pc+'%</span>'+
+      '<div class="muted" style="margin-top:2px">'+frac(got)+' of '+frac(tot)+' marks · ICAP pass is 50%</div></div>'+
+      '<div class="total"><svg viewBox="0 0 112 64" aria-hidden="true"><ellipse class="ell" cx="56" cy="32" rx="47" ry="26"/></svg>'+
+      '<div class="num">'+frac(got)+'/'+frac(tot)+'</div></div></div>'+
+    '<div class="gutter">'+(rows||'<div class="gline"><div class="pt">No creditable points identified.</div><div class="pen none">0</div></div>')+'</div>'+
+    '<div class="comments"><p class="eyebrow">Examiner\'s comments</p><p>'+esc(m.examiner_comments||"")+'</p>'+
+      ((m.marks_lost||[]).length?'<p class="eyebrow" style="margin-top:16px">Where the marks went</p><ul class="lost">'+
+        m.marks_lost.map(x=>'<li>'+esc(x)+'</li>').join("")+'</ul>':"")+
+      '<div class="tags">'+(m.error_types||[]).map(x=>'<span class="tag">'+esc(x)+'</span>').join("")+'</div></div>'+
+    '<div class="urdu"><p class="eyebrow">Feedback</p><div class="prose">'+md(m.roman_urdu_feedback||"")+'</div></div>'+
+    '<details class="model"><summary>Show the marks-earning answer</summary><div class="prose">'+md(m.model_answer||"")+'</div></details>'+
+  '</div>';
+}
+
+$("#startMock").onclick = async () => {
+  const topics = $("#mTopics").value.trim();
+  if(!topics){ $("#mockWrap").innerHTML = '<div class="sheet">'+oops("Pick at least one topic from the dropdown, or type your own.")+'</div>'; return; }
+  const marks = +$("#mMarks").value, n = +$("#mCount").value;
+  try{
+    const paper = $("#mPaper").value;
+    const per = Math.round(marks/n);
+    const qs = [];
+    for(let i=0;i<n;i++){
+      $("#mockWrap").innerHTML = '<div class="sheet">'+spin("Setting question "+(i+1)+" of "+n)+'</div>';
+      const t = await ask(SETTER,
+        paperBrief(paper)+
+        "\nTopics available: "+topics+
+        "\nThis is question "+(i+1)+" of "+n+" in one paper — pick a different topic or angle from the others."+
+        "\nDifficulty: exam standard, with at least one issue weak candidates miss."+
+        "\nTotal marks: "+per+"\nSet the question.", 1500);
+      const q = asJSON(t); q.paper = paper; qs.push(q);
+    }
+    S.mock = { qs, left: Math.round(marks*1.8*60), done:false };
+    drawMock(); startClock();
+  }catch(e){ $("#mockWrap").innerHTML = '<div class="sheet">'+oops(e.message)+'</div>'; }
+};
+
+function drawMock(){
+  const m = S.mock;
+  $("#mockSetup").classList.add("hidden");
+  $("#mockWrap").innerHTML =
+  '<div class="sheet" style="position:sticky;top:10px;z-index:20;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">'+
+    '<div><p class="eyebrow" style="margin:0 0 4px">Time remaining</p><span class="timer" id="clock">--:--</span></div>'+
+    '<button class="btn red" id="finish">Finish &amp; mark paper</button></div>'+
+  m.qs.map((q,i)=>
+    '<div class="sheet"><div class="qpaper">'+
+      '<div class="qhead"><h2 class="title">Question '+(i+1)+'</h2><span class="meta">'+esc(q.total_marks)+' marks</span></div>'+
+      '<div class="scenario">'+md(q.scenario)+'</div>'+
+      '<div class="reqs"><p class="eyebrow" style="margin-bottom:4px">Required</p>'+reqHtml(q)+'</div></div>'+
+      '<p class="eyebrow" style="margin-top:20px">Your answer</p>'+
+      '<textarea class="mAns" data-i="'+i+'" rows="11" placeholder="Answer likhein…"></textarea>'+
+      '<div id="mres-'+i+'" style="margin-top:18px"></div></div>').join("");
+  $("#finish").onclick = () => finishMock(false);
+}
+function startClock(){
+  clearInterval(S.tick);
+  const paint = () => {
+    const e = $("#clock"); if(!e) return;
+    const s = Math.max(0,S.mock.left);
+    e.textContent = String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
+    e.classList.toggle("warn", s<=300);
+  };
+  paint();
+  S.tick = setInterval(()=>{
+    if(!S.mock || S.mock.done){ clearInterval(S.tick); return; }
+    S.mock.left--; paint();
+    if(S.mock.left<=0){ clearInterval(S.tick); finishMock(true); }
+  },1000);
+}
+async function finishMock(auto){
+  if(!S.mock || S.mock.done) return;
+  S.mock.done = true; clearInterval(S.tick);
+  const btn = $("#finish"); if(btn){ btn.disabled=true; btn.textContent = auto ? "Time up — marking" : "Marking…"; }
+  document.querySelectorAll(".mAns").forEach(t=>t.readOnly=true);
+  for(const ta of document.querySelectorAll(".mAns")){
+    const i = +ta.dataset.i;
+    await markOne(S.mock.qs[i], ta.value, $("#mres-"+i), null);
+  }
+  if(btn) btn.textContent = "Paper marked";
+  $("#mockWrap").insertAdjacentHTML("beforeend",
+    '<div class="sheet"><p class="eyebrow">Paper closed</p>'+
+    '<p class="muted">Every question is marked above. Your weak areas have been updated.</p>'+
+    '<button class="btn ghost sm" id="againMock">Sit another paper</button></div>');
+  $("#againMock").onclick = () => { S.mock=null; $("#mockWrap").innerHTML=""; $("#mockSetup").classList.remove("hidden"); };
+}
+
+const STEPS = [1,3,7,16,35,75];
+function due(){ const now=Date.now(); return S.d.cards.filter(c=>c.due<=now); }
+function badge(){
+  const n = due().length, b = $("#dueBadge");
+  b.textContent = n; b.classList.toggle("hidden", n===0);
+}
+function addForm(){
+  return '<div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--rule)">'+
+    '<p class="eyebrow">Add a card by hand</p>'+
+    '<label class="field"><span>Front — the prompt</span><input type="text" id="nf"></label>'+
+    '<label class="field"><span>Back — the answer</span><input type="text" id="nb"></label>'+
+    '<button class="btn ghost sm" id="addC">Add card</button></div>';
+}
+function wireAdd(){
+  const b = $("#addC"); if(!b) return;
+  b.onclick = async () => {
+    const f = $("#nf").value.trim(), bk = $("#nb").value.trim();
+    if(!f||!bk) return;
+    S.d.cards.push({id:Date.now()+"",front:f,back:bk,topic:"Manual",due:Date.now(),step:0});
+    await save(); drawCards();
+  };
+}
+function drawCards(){
+  badge();
+  const body = $("#cardBody"), list = due();
+  if(!S.d.cards.length){
+    body.innerHTML = '<div class="empty"><strong>Deck is empty</strong>Explain a concept in Read &amp; ask, then press "Make flashcard" — or add one below.</div>'+addForm();
+    wireAdd(); drawDeck(); return;
+  }
+  if(!list.length){
+    const next = Math.min.apply(null, S.d.cards.map(c=>c.due));
+    const days = Math.max(1,Math.ceil((next-Date.now())/86400000));
+    body.innerHTML = '<div class="empty"><strong>Nothing due today</strong>'+S.d.cards.length+
+      ' cards in the deck. Next review in '+days+' day'+(days>1?"s":"")+'.</div>'+addForm();
+    wireAdd(); drawDeck(); return;
+  }
+  S.card = list[0];
+  body.innerHTML =
+    '<p class="muted" style="margin:0 0 12px">'+list.length+' due &nbsp;·&nbsp; '+esc(S.card.topic||"General")+'</p>'+
+    '<div class="flash"><div class="f">'+esc(S.card.front)+'</div>'+
+    '<div class="b hidden" id="cb"><div class="prose">'+md(S.card.back)+'</div></div></div>'+
+    '<div class="panel-actions" id="cardBtns"><button class="btn" id="reveal">Show answer</button></div>'+addForm();
+  wireAdd(); drawDeck();
+  $("#reveal").onclick = () => {
+    $("#cb").classList.remove("hidden");
+    $("#cardBtns").innerHTML =
+      '<button class="btn red sm" data-r="0">Bhool gaya</button>'+
+      '<button class="btn sm" data-r="1" style="background:var(--amber);border-color:var(--amber)">Mushkil</button>'+
+      '<button class="btn sm" data-r="2" style="background:var(--marked);border-color:var(--marked)">Aasan</button>'+
+      '<button class="btn ghost sm" id="del">Delete card</button>';
+    $("#cardBtns").querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>rate(+b.dataset.r));
+    $("#del").onclick = async () => { S.d.cards = S.d.cards.filter(c=>c!==S.card); await save(); drawCards(); };
+  };
+}
+async function rate(r){
+  const c = S.card;
+  c.step = r===0 ? 0 : Math.min(STEPS.length-1, c.step + (r===2?2:1));
+  c.due = Date.now() + (r===0 ? 6*3600000 : STEPS[c.step]*86400000);
+  await save(); drawCards();
+}
+function drawDeck(){
+  const l = $("#deckList");
+  if(!S.d.cards.length){ l.innerHTML = '<p class="muted">No cards yet.</p>'; return; }
+  l.innerHTML = S.d.cards.slice().sort((a,b)=>a.due-b.due).map(c=>{
+    const d = c.due<=Date.now() ? "due now" : new Date(c.due).toLocaleDateString();
+    return '<div class="bar"><div class="nm">'+esc(c.front)+'</div>'+
+      '<div class="muted" style="font-size:13px">'+esc(c.topic||"")+'</div>'+
+      '<div class="pc" style="font-size:12px">'+d+'</div></div>';
+  }).join("");
+}
+
+function drawProgress(){
+  const a = S.d.attempts;
+  const got = a.reduce((s,x)=>s+x.got,0), tot = a.reduce((s,x)=>s+x.tot,0);
+  const avg = tot? Math.round(got/tot*100) : 0;
+  const passed = a.filter(x=>x.got/x.tot>=0.5).length;
+  $("#statBox").innerHTML =
+    '<div class="stat"><div class="k">Questions marked</div><div class="v">'+a.length+'</div></div>'+
+    '<div class="stat"><div class="k">Average</div><div class="v" style="color:'+(avg>=50?"var(--marked)":"var(--red)")+'">'+avg+'%</div></div>'+
+    '<div class="stat"><div class="k">Above 50%</div><div class="v">'+passed+'<span style="font-size:16px;color:var(--ink-soft)">/'+a.length+'</span></div></div>'+
+    '<div class="stat"><div class="k">Concepts asked</div><div class="v">'+S.d.concepts.length+'</div></div>'+
+    '<div class="stat"><div class="k">Cards in deck</div><div class="v">'+S.d.cards.length+'</div></div>';
+
+  const tmap = {};
+  a.forEach(x=>(x.topics&&x.topics.length?x.topics:["Unlabelled"]).forEach(t=>{
+    const k = String(t).slice(0,60);
+    tmap[k] = tmap[k] || {g:0,t:0,n:0};
+    tmap[k].g += x.got; tmap[k].t += x.tot; tmap[k].n++;
+  }));
+  const tl = Object.keys(tmap).map(k=>({k, pc:Math.round(tmap[k].g/tmap[k].t*100), n:tmap[k].n})).sort((x,y)=>x.pc-y.pc);
+  $("#topicBars").innerHTML = tl.length
+    ? tl.map(r=>'<div class="bar"><div class="nm">'+esc(r.k)+' <span class="muted" style="font-size:12.5px">· '+
+        r.n+' attempt'+(r.n>1?"s":"")+'</span></div><div class="track"><div class="fill '+
+        (r.pc<50?"low":r.pc<65?"mid":"")+'" style="width:'+Math.max(2,r.pc)+'%"></div></div>'+
+        '<div class="pc">'+r.pc+'%</div></div>').join("")
+    : '<div class="empty"><strong>Nothing marked yet</strong>Attempt a question and this fills up with the topics costing you marks.</div>';
+
+  const emap = {};
+  a.forEach(x=>(x.errs||[]).forEach(e=>emap[e]=(emap[e]||0)+1));
+  const el = Object.keys(emap).map(k=>[k,emap[k]]).sort((x,y)=>y[1]-x[1]);
+  const max = el.length? el[0][1] : 1;
+  $("#errBars").innerHTML = el.length
+    ? el.map(p=>'<div class="bar"><div class="nm">'+esc(p[0])+'</div><div class="track"><div class="fill low" style="width:'+
+        Math.round(p[1]/max*100)+'%"></div></div><div class="pc">'+p[1]+'×</div></div>').join("")+
+      '<p class="muted" style="margin-top:12px">Your most frequent failing is the one to drill first — it usually costs more marks than any single topic.</p>'
+    : '<div class="empty"><strong>No pattern yet</strong>After a few marked answers, your recurring type of mistake shows up here.</div>';
+
+  $("#log").innerHTML = a.length
+    ? a.slice(0,25).map(x=>{
+        const pc = Math.round(x.got/x.tot*100);
+        return '<div class="bar" style="grid-template-columns:minmax(0,1fr) 90px 52px">'+
+          '<div class="nm">'+esc((x.topics||[]).join(", ")||"Unlabelled")+
+          '<span class="muted" style="display:block;font-size:12.5px">'+new Date(x.when).toLocaleString()+' · '+esc(x.paper||"")+'</span></div>'+
+          '<div class="muted" style="font-size:13px">'+frac(x.got)+'/'+frac(x.tot)+'</div>'+
+          '<div class="pc" style="color:'+(pc>=50?"var(--marked)":"var(--red)")+'">'+pc+'%</div></div>';
+      }).join("")
+    : '<p class="muted">No attempts logged.</p>';
+}
+
+$("#wipe").onclick = async () => {
+  if(!confirm("Clear all attempts, concepts and flashcards? This cannot be undone.")) return;
+  S.d = {attempts:[],cards:[],concepts:[]};
+  await save(); badge(); drawProgress(); drawCards();
+};
+
+$("#dlSheet").onclick = () => {
+  const a = S.d.attempts, c = S.d.concepts;
+  const emap = {}; a.forEach(x=>(x.errs||[]).forEach(e=>emap[e]=(emap[e]||0)+1));
+  const tmap = {};
+  a.forEach(x=>(x.topics||[]).forEach(t=>{tmap[t]=tmap[t]||{g:0,t:0};tmap[t].g+=x.got;tmap[t].t+=x.tot;}));
+  const weak = Object.keys(tmap).map(k=>[k,Math.round(tmap[k].g/tmap[k].t*100)]).sort((x,y)=>x[1]-y[1]);
+  const html = '<!doctype html><meta charset="utf-8"><title>Revision sheet</title>'+
+'<style>body{font-family:Georgia,serif;max-width:800px;margin:36px auto;padding:0 20px;color:#14202B;line-height:1.6}'+
+'h1{font-size:22px;border-bottom:2px solid #14202B;padding-bottom:8px}'+
+'h2{font-size:13px;letter-spacing:.14em;text-transform:uppercase;margin-top:30px;color:#4A5A66}'+
+'li{margin-bottom:8px}.lo{color:#B22233;font-weight:bold}'+
+'.cc{border-left:3px solid #C2D0D6;padding-left:12px;margin:14px 0}@media print{body{margin:0}}</style>'+
+'<h1>Revision sheet — '+new Date().toLocaleDateString()+'</h1>'+
+'<h2>Weakest topics</h2><ul>'+(weak.slice(0,15).map(p=>'<li>'+esc(p[0])+' — <span class="'+(p[1]<50?"lo":"")+'">'+p[1]+'%</span></li>').join("")||"<li>No data</li>")+'</ul>'+
+'<h2>Recurring mistakes</h2><ul>'+(Object.keys(emap).map(k=>[k,emap[k]]).sort((x,y)=>y[1]-x[1]).map(p=>'<li>'+esc(p[0])+' — '+p[1]+' time(s)</li>').join("")||"<li>No data</li>")+'</ul>'+
+'<h2>Examiner comments to remember</h2>'+(a.slice(0,12).map(x=>'<div class="cc"><em>'+esc((x.topics||[]).join(", "))+'</em><br>'+esc(x.comments)+'</div>').join("")||"<p>No data</p>")+
+'<h2>Concepts you asked about</h2><ul>'+(c.slice(0,40).map(x=>'<li>'+esc(x.t)+'</li>').join("")||"<li>None</li>")+'</ul>';
+  const url = URL.createObjectURL(new Blob([html],{type:"text/html"}));
+  const a2 = document.createElement("a");
+  a2.href = url; a2.download = "revision-sheet.html"; a2.click();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
+};
+
+document.addEventListener("keydown", e=>{
+  if(e.target.matches("input,textarea,select")) return;
+  if(!S.pdf || !$("#v-read").classList.contains("on")) return;
+  if(e.key==="ArrowRight") $("#next").click();
+  if(e.key==="ArrowLeft") $("#prev").click();
+});
+
+$("#provider").onchange = e => {
+  const v = e.target.value;
+  PROVIDER = (v==="gemini") ? "gemini" : "claude";
+  const needsKey = (v!=="claude");
+  $("#apikey").classList.toggle("hidden", !needsKey);
+  $("#apikey").placeholder = (v==="gemini") ? "Google AI Studio key" : "Anthropic key";
+  $("#gemmodel").classList.toggle("hidden", !(v==="gemini" && gemAvailable && gemAvailable.length));
+  if(!needsKey){ APIKEY=""; $("#apikey").value=""; }
+  $("#diagOut").textContent = (v==="gemini")
+    ? "Get a free key at aistudio.google.com — sign in, then Get API key."
+    : (v==="claude" ? "No key needed. Works when this tool runs inside Claude." : "");
+  $("#diagOut").style.color = "var(--ink-soft)";
+};
+$("#apikey").oninput = e => {
+  APIKEY = e.target.value.trim();
+  gemModel = null; gemAvailable = null;
+  $("#gemmodel").classList.add("hidden");
+};
+
+function fillModelPicker(){
+  const sel = $("#gemmodel");
+  if(!gemAvailable || !gemAvailable.length){ sel.classList.add("hidden"); return; }
+  sel.innerHTML = gemAvailable.map(id => '<option value="'+id+'"'+(id===gemModel?" selected":"")+'>'+id+'</option>').join("");
+  sel.classList.toggle("hidden", PROVIDER !== "gemini");
+}
+$("#gemmodel").onchange = e => {
+  gemModel = e.target.value;
+  gemPinned = gemModel;
+  try{ localStorage.setItem("mg_gem_model", gemModel); }catch(err){}
+  $("#diagOut").style.color = "var(--ink-soft)";
+  $("#diagOut").textContent = "Now using " + gemModel + ".";
+};
+
+$("#diag").onclick = async () => {
+  const out = $("#diagOut"), btn = $("#diag");
+  APIKEY = $("#apikey").value.trim();
+  btn.disabled = true; btn.textContent = "Testing…";
+  out.style.color = "var(--ink-soft)";
+
+  // Step 1 (Google only): ask the key what it can actually run, so a retired
+  // model name never gets blamed on the key.
+  if(PROVIDER === "gemini"){
+    if(!APIKEY){
+      out.style.color = "var(--red)";
+      out.textContent = "Paste your Google AI Studio key first.";
+      btn.disabled = false; btn.textContent = "Check connection";
+      return;
+    }
+    out.textContent = "Asking Google which models this key can run…";
+    gemModel = null; gemAvailable = null;
+    try{
+      await ensureGemModel();
+    }catch(e){
+      out.style.color = "var(--red)";
+      out.textContent = String(e.message||e);
+      btn.disabled = false; btn.textContent = "Check connection";
+      return;
+    }
+  }
+
+  // Step 2: a real round trip.
+  out.textContent = "Sending a test question…";
+  let r;
+  try{
+    r = await callAPI("Reply with exactly: OK", "test", 20);
+  }catch(e){
+    out.style.color = "var(--red)";
+    out.textContent = APIKEY
+      ? "Key accepted but the request never landed. Check your internet, then try again."
+      : "Blocked. " + OFFLINE_MSG;
+    btn.disabled = false; btn.textContent = "Check connection";
+    return;
+  }
+  if(r.ok){
+    out.style.color = "var(--marked)";
+    out.textContent = PROVIDER==="gemini"
+      ? "Connected on " + gemModel + ". " + gemAvailable.length + " models available in the dropdown."
+      : "Connected. Questions and explanations will work.";
+  }else{
+    out.style.color = "var(--red)";
+    out.textContent = "Refused" + (r.status ? " ("+r.status+")" : "") + ". " + String(r.body||"").slice(0,220);
+  }
+  btn.disabled = false; btn.textContent = "Check connection";
+};
+
+(async function(){ await load(); badge(); drawCards(); drawProgress(); })();
+</script>

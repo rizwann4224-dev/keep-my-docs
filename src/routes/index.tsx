@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -137,6 +137,9 @@ function WorkspacePage() {
           </button>
           <div className="flex items-center gap-2">
             <span className="hidden text-sm text-muted-foreground sm:inline">{user.email}</span>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/icap">ICAP exam tool</Link>
+            </Button>
             <SettingsDialog />
             <Button
               variant="ghost"
