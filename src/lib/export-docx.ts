@@ -234,19 +234,28 @@ export async function exportMarkingToWord(data: MarkExport) {
       children: [new TextRun({ text: `${data.notebook} — Answer & marking` })],
     }),
     new Paragraph({
-      spacing: { after: 240 },
+      spacing: { after: 200 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: "1F3864", space: 4 } },
       children: [
-        new TextRun({ text: `${dated}`, color: "666666", size: 20 }),
         new TextRun({
-          text: data.requested.length ? `  ·  Included: ${data.requested.join(", ")}` : "",
-          color: "666666",
-          size: 20,
+          text: "ICAP professional-level examiner report",
+          color: "1F3864",
+          size: 22,
+          italics: true,
         }),
       ],
     }),
+    infoTable([
+      ["Notebook", data.notebook],
+      ["Generated", dated],
+      ["Marking standard", data.rigour ?? "Strict"],
+      ["Sections included", data.requested.length ? data.requested.join(", ") : "All"],
+    ]),
+    new Paragraph({ children: [new TextRun("")] }),
     sectionHeading("Question / scenario"),
     ...labelledBlock(data.question),
   ];
+
 
   if (data.userAnswer?.trim()) {
     children.push(sectionHeading("Your answer"), ...labelledBlock(data.userAnswer));
