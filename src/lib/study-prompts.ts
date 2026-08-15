@@ -295,7 +295,7 @@ Output a markdown table with EXACTLY these columns and one row per item, then a 
 
 | Item | Marks available | Marks awarded | Justification |
 
-Rules: marks awarded must never exceed marks available; the Total row must be the exact arithmetic sum of the rows; each justification is one line citing [Source: name]. After the table add a two-line examiner verdict stating the percentage and whether it passes at ICAP professional level.`,
+Rules: marks awarded must never exceed marks available; the Total row must be the exact arithmetic sum of the rows (recompute the addition digit by digit before printing); each justification is one line stating the grade (FULL / HALF / ZERO) for each mark-plan point, the reason, and a citation [Source: name]. Half marks are only permitted where the severity in force allows them — under HARD severity every cell must be a whole number. After the table add a two-line examiner verdict stating the percentage (marks awarded ÷ marks available) and whether it passes at ICAP professional level.`,
 
   suggested: `# ✅ Suggested Answer
 
