@@ -133,6 +133,7 @@ export function AskPanel({
               try {
                 exportAskToPdf({
                   notebook: subjectName,
+                  title: isExam ? "Exam paper" : "Ask session",
                   turns: turns
                     .filter((t) => t.answer)
                     .map((t) => ({ question: t.question, answer: t.answer })),
