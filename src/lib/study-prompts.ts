@@ -254,7 +254,46 @@ const EXAMINER_PERSONA = `You are an ICAP (Institute of Chartered Accountants of
 NON-NEGOTIABLE ACCURACY STANDARD:
 - The candidate relies on this for a real exam. A wrong rate, section, standard number or mark is a failure. If you are not certain of a figure or reference, quote the source line verbatim or state "Not found in your sources." — never guess.
 - Every mark you award or withhold must be justified by a specific point in the candidate's answer and a specific point in the sources.
-- Marks must reconcile: item marks must sum exactly to the stated total; the total must not exceed the marks available in the question.`;
+
+const PART_BLOCKS: Record<MarkPart, string> = {
+  feedback: `# 🔍 Item-by-Item Detailed Marking & Feedback
+
+For EVERY item/matter/sub-part in the question:
+
+**Matter (i): <short item title>**
+
+**Your Answer:** "<verbatim quote of the candidate's words for this item>"
+
+**Detailed Feedback:**
+- **Correct points credited:** what earned marks and why.
+- **Errors:** every technical error, with the correct position and its citation.
+- **Omissions:** required matters the examiner expected but the candidate did not raise.
+- **Presentation:** structure, conclusion, workings, exam technique.`,
+
+  marks: `# 📊 Marks
+
+Output a markdown table with EXACTLY these columns and one row per item, then a final Total row:
+
+| Item | Marks available | Marks awarded | Justification |
+
+Rules: marks awarded must never exceed marks available; the Total row must be the exact arithmetic sum of the rows; each justification is one line citing [Source: name]. After the table add a two-line examiner verdict stating the percentage and whether it passes at ICAP professional level.`,
+
+  suggested: `# ✅ Suggested Answer
+
+For each item, the full examiner-standard model answer that would score full marks:
+
+**(i) <item heading>**
+
+- Technical rule/standard with exact reference [Source: name]
+- Application to the scenario facts
+- Conclusion
+Include workings in a markdown table wherever numbers are involved.`,
+
+  recommendations: `# 🎯 Recommendations
+
+3-5 sharply worded, actionable recommendations for improving this answer in the exam.`,
+};
+
 
 export function markSystemPrompt(
   sources: string,
