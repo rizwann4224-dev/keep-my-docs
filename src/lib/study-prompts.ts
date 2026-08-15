@@ -255,13 +255,14 @@ const RIGOUR_BLOCKS: Record<Rigour, string> = {
 - Deduct the full point (not half) for any incorrect figure or citation — an accurate-looking but wrong number scores nothing.
 - Expected outcome: materially BELOW the moderate total for the same answer — typically 15-30% fewer marks. If your strict total equals the moderate total, you have mis-marked: re-apply the criteria point by point.`,
 
-  hard: `MARKING SEVERITY — HARD / DIFFICULT (distinction-standard examiner; the HARSHEST of the three):
-- FULL mark ONLY when (a), (b), (c) and (d) are met AND the point is expressed in precise exam language with the exact source reference quoted.
-- NO half marks exist at this severity. Every point is FULL or ZERO. Never output 0.5 anywhere in the marks table.
-- ZERO for vague, hedged or partially correct statements, missing workings, unreferenced assertions, and any point where the candidate's wording could be read two ways.
-- Additionally cap the item score: if the item lacks headings/matter-by-matter structure or a stated conclusion, the item cannot exceed 50% of its marks available.
-- State candidly where the answer would fail even though the candidate "knew" the topic.
-- Expected outcome: materially BELOW the strict total for the same answer — typically 25-40% fewer marks than moderate. If your hard total is within half a mark of the strict total, you have mis-marked: re-apply FULL/ZERO with no benefit of the doubt.`,
+  hard: `MARKING SEVERITY — HARD / DIFFICULT (distinction-standard examiner; the HARSHEST of the three, but still a FAIR examiner):
+- FULL mark only when (a), (b), (c) and (d) are met AND the point is expressed in precise exam language with the source reference identified.
+- HALF mark where the point is technically correct and relevant but loosely worded, unreferenced, missing workings, or lacking an explicit conclusion.
+- ZERO only for points that are absent, technically wrong, based on an invented/incorrect figure or reference, or so vague that no examiner could identify the technical point intended.
+- NEVER award zero to a point whose technical substance is correct — correct substance always earns at least HALF at this severity.
+- Structure, headings and exam technique may cost at most 25% of an item's marks; they can never reduce an item to zero on their own.
+- An answer that addresses the required matters correctly cannot receive an overall zero. Zero for the whole attempt is reserved for an answer that is blank, off-topic, or entirely wrong.
+- Expected outcome: materially BELOW the strict total for the same answer — typically 25-40% fewer marks than moderate, but still a defensible mark the candidate can learn from. If your hard total is within half a mark of the strict total, re-apply the criteria with no benefit of the doubt.`,
 };
 
 
@@ -295,7 +296,7 @@ Output a markdown table with EXACTLY these columns and one row per item, then a 
 
 | Item | Marks available | Marks awarded | Justification |
 
-Rules: marks awarded must never exceed marks available; the Total row must be the exact arithmetic sum of the rows (recompute the addition digit by digit before printing); each justification is one line stating the grade (FULL / HALF / ZERO) for each mark-plan point, the reason, and a citation [Source: name]. Half marks are only permitted where the severity in force allows them — under HARD severity every cell must be a whole number. After the table add a two-line examiner verdict stating the percentage (marks awarded ÷ marks available) and whether it passes at ICAP professional level.`,
+Rules: marks awarded must never exceed marks available; the Total row must be the exact arithmetic sum of the rows (recompute the addition digit by digit before printing); each justification is one line stating the grade (FULL / HALF / ZERO) for each mark-plan point, the reason, and a citation [Source: name]. Half marks are permitted at every severity. Never award zero to a point whose technical substance is correct, and never return an overall zero for an answer that addresses the required matters. After the table add a two-line examiner verdict stating the percentage (marks awarded ÷ marks available) and whether it passes at ICAP professional level.`,
 
   suggested: `# ✅ Suggested Answer
 
