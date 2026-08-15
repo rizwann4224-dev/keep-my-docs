@@ -4,11 +4,14 @@ import { z } from "zod";
 import {
   askSystemPrompt,
   buildLessonsBlock,
+  examSetterSystemPrompt,
   insightsSystemPrompt,
   buildRelevantSourceBlock,
   markSystemPrompt,
   type MarkPart,
+  type Rigour,
 } from "@/lib/study-prompts";
+
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -25,15 +28,17 @@ const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flas
 
 const Body = z.object({
   subjectId: z.string().uuid(),
-  mode: z.enum(["ask", "mark", "insights"]),
+  mode: z.enum(["ask", "mark", "insights", "exam"]),
   question: z.string().min(1),
   userAnswer: z.string().optional(),
   parts: z.array(z.enum(["feedback", "marks", "suggested", "recommendations"])).optional(),
+  rigour: z.enum(["moderate", "strict", "hard"]).optional(),
   history: z
     .array(z.object({ question: z.string(), answer: z.string() }))
     .max(20)
     .optional(),
 });
+
 
 
 export const Route = createFileRoute("/api/study")({
@@ -95,8 +100,15 @@ export const Route = createFileRoute("/api/study")({
           const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery);
           system =
             data.mode === "mark"
-              ? markSystemPrompt(sources, lessons, (data.parts ?? []) as MarkPart[])
-              : askSystemPrompt(sources, lessons);
+              ? markSystemPrompt(
+                  sources,
+                  lessons,
+                  (data.parts ?? []) as MarkPart[],
+                  (data.rigour ?? "strict") as Rigour,
+                )
+              : data.mode === "exam"
+                ? examSetterSystemPrompt(sources, lessons)
+                : askSystemPrompt(sources, lessons);
         }
 
         const userContent =
@@ -104,17 +116,20 @@ export const Route = createFileRoute("/api/study")({
             ? "Produce the performance diagnostic now."
             : data.mode === "mark"
             ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
+            : data.mode === "exam"
+            ? `EXAM BRIEF FROM THE CANDIDATE:\n${data.question}`
             : data.question;
 
         // Ask mode keeps the thread's earlier turns so follow-ups ("and for the
         // next year?", "rephrase that") resolve against the previous question.
         const priorMessages =
-          data.mode === "ask"
+          data.mode === "ask" || data.mode === "exam"
             ? (data.history ?? []).slice(-8).flatMap((turn) => [
                 { role: "user" as const, content: turn.question },
                 { role: "assistant" as const, content: turn.answer.slice(0, 6000) },
               ])
             : [];
+
 
         let upstream: Response | null = null;
         let source: "gateway" | "google" = "gateway";

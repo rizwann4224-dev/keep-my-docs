@@ -1,15 +1,18 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { MarkPart } from "@/lib/study-prompts";
+import type { MarkPart, Rigour } from "@/lib/study-prompts";
 
 export type StudyRequest = {
   subjectId: string;
-  mode: "ask" | "mark" | "insights";
+  mode: "ask" | "mark" | "insights" | "exam";
   question: string;
   userAnswer?: string | undefined;
   parts?: MarkPart[] | undefined;
+  /** Marking severity for mark mode. */
+  rigour?: Rigour | undefined;
   /** Prior turns in this Ask thread, so follow-up questions keep their context. */
   history?: { question: string; answer: string }[] | undefined;
 };
+
 
 /** Streams the model's answer token-by-token; resolves with the full text. */
 export async function streamStudyQuery(

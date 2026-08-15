@@ -31,7 +31,8 @@ export function HistoryPanel({
         .from("qa_entries")
         .select("id, mode, question, response, created_at")
         .eq("subject_id", subjectId);
-      if (mode) query = query.eq("mode", mode);
+      if (mode === "mark") query = query.eq("mode", "mark");
+      else if (mode === "ask") query = query.in("mode", ["ask", "exam"]);
       const { data, error } = await query.order("created_at", { ascending: false }).limit(50);
       if (error) throw error;
       return data as Entry[];
@@ -55,7 +56,7 @@ export function HistoryPanel({
           <AccordionTrigger className="text-left">
             <span className="flex min-w-0 flex-1 items-center gap-3">
               <Badge variant={entry.mode === "mark" ? "default" : "secondary"}>
-                {entry.mode === "mark" ? "Marked" : "Answer"}
+                {entry.mode === "mark" ? "Marked" : entry.mode === "exam" ? "Exam" : "Answer"}
               </Badge>
               <span className="truncate text-sm font-medium">{entry.question}</span>
               <span className="ml-auto shrink-0 text-xs text-muted-foreground">

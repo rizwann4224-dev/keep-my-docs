@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import * as jobs from "@/lib/study-jobs";
-import type { MarkPart } from "@/lib/study-prompts";
+import type { MarkPart, Rigour } from "@/lib/study-prompts";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
@@ -16,6 +16,13 @@ const OPTIONS: { id: MarkPart; label: string; hint: string }[] = [
   { id: "recommendations", label: "Recommendations", hint: "🎯 how to improve" },
 ];
 
+const RIGOURS: { id: Rigour; label: string; hint: string }[] = [
+  { id: "moderate", label: "Moderate", hint: "Credit for correct substance" },
+  { id: "strict", label: "Strict", hint: "Standard ICAP examiner" },
+  { id: "hard", label: "Hard / difficult", hint: "Distinction standard, no benefit of the doubt" },
+];
+
+
 export function MarkPanel({
   subjectId,
   subjectName,
@@ -26,10 +33,12 @@ export function MarkPanel({
   const [question, setQuestion] = useState("");
   const [userAnswer, setUserAnswer] = useState("");
   const [parts, setParts] = useState<MarkPart[]>(["feedback", "marks", "suggested"]);
+  const [rigour, setRigour] = useState<Rigour>("strict");
   const [submitted, setSubmitted] = useState<{
     question: string;
     userAnswer: string;
     parts: MarkPart[];
+    rigour: Rigour;
   } | null>(null);
   const [exporting, setExporting] = useState(false);
   const key = `${subjectId}:mark`;
@@ -43,7 +52,12 @@ export function MarkPanel({
 
   function run() {
     if (running) return;
-    setSubmitted({ question: question.trim(), userAnswer: userAnswer.trim(), parts: [...parts] });
+    setSubmitted({
+      question: question.trim(),
+      userAnswer: userAnswer.trim(),
+      parts: [...parts],
+      rigour,
+    });
     jobs.startRun(
       key,
       {
@@ -52,6 +66,7 @@ export function MarkPanel({
         question: question.trim(),
         userAnswer: userAnswer.trim() || undefined,
         parts,
+        rigour,
       },
       question.trim(),
     );
@@ -64,6 +79,30 @@ export function MarkPanel({
 
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h2 className="text-base font-semibold text-foreground">Marking standard</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Marked by an ICAP professional-level examiner — choose how harshly.
+        </p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          {RIGOURS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setRigour(option.id)}
+              className={`rounded-lg border p-3 text-left transition-colors ${
+                rigour === option.id
+                  ? "border-primary bg-accent"
+                  : "border-border bg-background hover:bg-muted"
+              }`}
+            >
+              <span className="block text-sm font-medium text-foreground">{option.label}</span>
+              <span className="block text-xs text-muted-foreground">{option.hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="rounded-xl border border-border bg-card p-5">
         <h2 className="text-base font-semibold text-foreground">What do you want back?</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -90,6 +129,7 @@ export function MarkPanel({
           })}
         </div>
       </div>
+
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-border bg-card p-5">
@@ -161,8 +201,12 @@ export function MarkPanel({
                       requested: (submitted?.parts ?? parts).map(
                         (id) => OPTIONS.find((o) => o.id === id)?.label ?? id,
                       ),
+                      rigour:
+                        RIGOURS.find((r) => r.id === (submitted?.rigour ?? rigour))?.label ??
+                        "Strict",
                       response: latest.answer,
                     });
+
                   } catch {
                     toast.error("Could not build the Word file");
                   } finally {
