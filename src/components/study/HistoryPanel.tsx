@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +25,7 @@ export function HistoryPanel({
   subjectId: string;
   mode?: "ask" | "mark";
 }) {
-  const { data: entries = [] } = useQuery({
+  const { data: entries = [], refetch } = useQuery({
     queryKey: ["qa", subjectId, mode ?? "all"],
     queryFn: async () => {
       let query = supabase
@@ -38,6 +39,13 @@ export function HistoryPanel({
       return data as Entry[];
     },
   });
+
+  useEffect(() => {
+    const onUpdate = () => void refetch();
+    window.addEventListener("study-history-updated", onUpdate);
+    return () => window.removeEventListener("study-history-updated", onUpdate);
+  }, [refetch]);
+
 
   if (entries.length === 0) {
     return (

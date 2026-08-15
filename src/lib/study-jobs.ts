@@ -108,7 +108,13 @@ export function startRun(key: string, body: StudyRequest, label?: string) {
   commit({ ...state, [key]: [...(state[key] ?? []), turn] });
 
   void streamStudyQuery(body, (full) => patch(key, id, { answer: full }))
-    .then((full) => patch(key, id, { answer: full, status: "done" }))
+    .then((full) => {
+      patch(key, id, { answer: full, status: "done" });
+      // The server saves the turn to history once the stream ends — tell any
+      // open History panel to refresh.
+      if (typeof window !== "undefined")
+        window.dispatchEvent(new CustomEvent("study-history-updated"));
+    })
     .catch((error: unknown) =>
       patch(key, id, {
         status: "error",

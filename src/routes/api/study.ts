@@ -247,9 +247,10 @@ export const Route = createFileRoute("/api/study")({
                 }
               }
             } finally {
-              controller.close();
+              // Save BEFORE closing the stream: once the response closes the
+              // worker can be torn down and a pending insert would be dropped.
               if (full && data.mode !== "insights") {
-                await supabase.from("qa_entries").insert({
+                const { error } = await supabase.from("qa_entries").insert({
                   user_id: userId,
                   subject_id: data.subjectId,
                   mode: data.mode,
@@ -257,7 +258,9 @@ export const Route = createFileRoute("/api/study")({
                   user_answer: data.userAnswer ?? null,
                   response: full,
                 });
+                if (error) console.error("qa_entries insert failed", error.message);
               }
+              controller.close();
             }
           },
         });
