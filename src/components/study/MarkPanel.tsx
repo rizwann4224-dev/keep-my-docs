@@ -33,10 +33,12 @@ export function MarkPanel({
   const [question, setQuestion] = useState("");
   const [userAnswer, setUserAnswer] = useState("");
   const [parts, setParts] = useState<MarkPart[]>(["feedback", "marks", "suggested"]);
+  const [rigour, setRigour] = useState<Rigour>("strict");
   const [submitted, setSubmitted] = useState<{
     question: string;
     userAnswer: string;
     parts: MarkPart[];
+    rigour: Rigour;
   } | null>(null);
   const [exporting, setExporting] = useState(false);
   const key = `${subjectId}:mark`;
@@ -50,7 +52,12 @@ export function MarkPanel({
 
   function run() {
     if (running) return;
-    setSubmitted({ question: question.trim(), userAnswer: userAnswer.trim(), parts: [...parts] });
+    setSubmitted({
+      question: question.trim(),
+      userAnswer: userAnswer.trim(),
+      parts: [...parts],
+      rigour,
+    });
     jobs.startRun(
       key,
       {
@@ -59,6 +66,7 @@ export function MarkPanel({
         question: question.trim(),
         userAnswer: userAnswer.trim() || undefined,
         parts,
+        rigour,
       },
       question.trim(),
     );
@@ -71,6 +79,30 @@ export function MarkPanel({
 
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h2 className="text-base font-semibold text-foreground">Marking standard</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Marked by an ICAP professional-level examiner — choose how harshly.
+        </p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          {RIGOURS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setRigour(option.id)}
+              className={`rounded-lg border p-3 text-left transition-colors ${
+                rigour === option.id
+                  ? "border-primary bg-accent"
+                  : "border-border bg-background hover:bg-muted"
+              }`}
+            >
+              <span className="block text-sm font-medium text-foreground">{option.label}</span>
+              <span className="block text-xs text-muted-foreground">{option.hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="rounded-xl border border-border bg-card p-5">
         <h2 className="text-base font-semibold text-foreground">What do you want back?</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -97,6 +129,7 @@ export function MarkPanel({
           })}
         </div>
       </div>
+
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-border bg-card p-5">
