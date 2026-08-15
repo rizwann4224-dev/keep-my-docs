@@ -160,14 +160,19 @@ export function AskPanel({
               submit();
             }
           }}
-          placeholder="e.g. What is the tax rate for a small company?  (Enter to send, Shift+Enter for a new line)"
+          placeholder={
+            isExam
+              ? "e.g. Set 2 professional-level questions on IAS 12 deferred tax, 15 marks each, hard difficulty, with the marking guide."
+              : "e.g. What is the tax rate for a small company?  (Enter to send, Shift+Enter for a new line)"
+          }
           className="min-h-20 resize-none border-0 focus-visible:ring-0"
         />
         <div className="flex justify-end">
           <Button onClick={submit} disabled={running || question.trim().length < 2}>
-            {running ? "Thinking…" : "Ask"}
+            {running ? "Thinking…" : isExam ? "Set exam" : "Ask"}
           </Button>
         </div>
+
       </div>
     </div>
   );
