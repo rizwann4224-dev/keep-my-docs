@@ -28,15 +28,17 @@ const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flas
 
 const Body = z.object({
   subjectId: z.string().uuid(),
-  mode: z.enum(["ask", "mark", "insights"]),
+  mode: z.enum(["ask", "mark", "insights", "exam"]),
   question: z.string().min(1),
   userAnswer: z.string().optional(),
   parts: z.array(z.enum(["feedback", "marks", "suggested", "recommendations"])).optional(),
+  rigour: z.enum(["moderate", "strict", "hard"]).optional(),
   history: z
     .array(z.object({ question: z.string(), answer: z.string() }))
     .max(20)
     .optional(),
 });
+
 
 
 export const Route = createFileRoute("/api/study")({
