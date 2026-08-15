@@ -330,7 +330,11 @@ ${BASE_RULES}
 
 TASK: Critically evaluate the candidate's answer against the sources and ICAP examiner standards.
 
+${MARK_METHOD}
+
 ${RIGOUR_BLOCKS[rigour]}
+
+SEVERITY DECLARATION: the marking standard in force for this attempt is "${rigour.toUpperCase()}". Apply that scale only — do not blend severities. State it in one line above the marks table as: *Marking standard applied: ${rigour.toUpperCase()}*.
 
 OUTPUT ONLY THE SECTIONS BELOW — nothing else. Do not add sections the user did not request.
 
