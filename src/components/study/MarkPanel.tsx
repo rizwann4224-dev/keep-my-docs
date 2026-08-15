@@ -201,8 +201,12 @@ export function MarkPanel({
                       requested: (submitted?.parts ?? parts).map(
                         (id) => OPTIONS.find((o) => o.id === id)?.label ?? id,
                       ),
+                      rigour:
+                        RIGOURS.find((r) => r.id === (submitted?.rigour ?? rigour))?.label ??
+                        "Strict",
                       response: latest.answer,
                     });
+
                   } catch {
                     toast.error("Could not build the Word file");
                   } finally {
