@@ -17,8 +17,10 @@ export function AskPanel({
   subjectId: string;
   subjectName?: string;
 }) {
+  const [tab, setTab] = useState<"general" | "question">("general");
   const [question, setQuestion] = useState("");
-  const key = `${subjectId}:ask`;
+  const isExam = tab === "question";
+  const key = `${subjectId}:${isExam ? "exam" : "ask"}`;
 
   useSyncExternalStore(jobs.subscribe, jobs.getSnapshot, jobs.getSnapshot);
   const turns = jobs.getTurns(key);
@@ -27,13 +29,13 @@ export function AskPanel({
   // Earlier asks are saved to History; pull them back so the model still knows
   // what was asked before, even after a tab switch or reload.
   const { data: saved = [] } = useQuery({
-    queryKey: ["ask-history", subjectId],
+    queryKey: ["ask-history", subjectId, isExam ? "exam" : "ask"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("qa_entries")
         .select("question, response, created_at")
         .eq("subject_id", subjectId)
-        .eq("mode", "ask")
+        .eq("mode", isExam ? "exam" : "ask")
         .order("created_at", { ascending: false })
         .limit(6);
       if (error) throw error;
@@ -50,26 +52,53 @@ export function AskPanel({
     const past = saved
       .filter((entry) => !live.some((t) => t.question === entry.question))
       .map((entry) => ({ question: entry.question, answer: entry.response }));
-    jobs.startRun(key, { subjectId, mode: "ask", question: q, history: [...past, ...live] });
+    jobs.startRun(key, {
+      subjectId,
+      mode: isExam ? "exam" : "ask",
+      question: q,
+      history: [...past, ...live],
+    });
     setQuestion("");
     toast.info("Working — you can switch tabs, the answer keeps generating.");
   }
 
-
-
-
   return (
     <div className="space-y-6">
+      <div className="inline-flex rounded-lg border border-border bg-muted p-1">
+        {([
+          { id: "general", label: "General query" },
+          { id: "question", label: "Question (exam setter)" },
+        ] as const).map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => setTab(option.id)}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+              tab === option.id
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
       {turns.length === 0 && (
         <div className="rounded-xl border border-border bg-card p-8 text-center">
-          <h2 className="text-base font-semibold text-foreground">Ask anything about your sources</h2>
+          <h2 className="text-base font-semibold text-foreground">
+            {isExam
+              ? "Set an exam from your sources"
+              : "Ask anything about your sources"}
+          </h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            You get the direct answer first — a rate, a figure, a name, a rule — then only the
-            supporting detail, cited from your documents. Answers keep generating in the background
-            if you move around the app.
+            {isExam
+              ? "Acts as an ICAP professional-level paper setter. Tell it the topic, number of questions, marks and difficulty — it drafts exam-standard scenario questions with a Required section and mark allocation, drawn strictly from your uploaded material."
+              : "You get the direct answer first — a rate, a figure, a name, a rule — then only the supporting detail, cited from your documents. Answers keep generating in the background if you move around the app."}
           </p>
         </div>
       )}
+
 
       <div className="space-y-5">
         {turns.map((turn) => (
