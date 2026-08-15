@@ -230,24 +230,40 @@ ${sources}`;
 export type MarkPart = "feedback" | "suggested" | "marks" | "recommendations";
 export type Rigour = "moderate" | "strict" | "hard";
 
+const MARK_METHOD = `MARK AWARD METHOD (mechanical — follow in this exact order, silently):
+1. Build the mark plan FIRST, before reading the candidate's answer: list every point the official examiner would reward, with the marks attached to each, summing exactly to the marks available. If the question does not state marks available, assume 1 mark per required point and state the assumption once.
+2. For each mark-plan point, locate it in the candidate's answer by quoting the candidate's exact words (or record "absent").
+3. Grade each point independently on the CREDIT SCALE for the selected severity below — never by overall impression, never by rounding up a weak answer.
+4. Sum the point scores per item, then across items. The total is arithmetic only; do not adjust it to "feel right".
+5. Sanity check: an answer missing the conclusion or the key figure can NEVER reach 70% of the marks available for that item, at any severity.
+
+CREDIT SCALE (a point is graded as one of): FULL (all criteria met) / HALF (only where the severity below permits) / ZERO.
+A point qualifies as technically complete only if it has: (a) the correct rule/principle, (b) the correct reference or figure exactly as in the sources, (c) application to the scenario facts, (d) a stated conclusion where one is required.`;
+
 const RIGOUR_BLOCKS: Record<Rigour, string> = {
-  moderate: `MARKING SEVERITY — MODERATE (pass-oriented marker):
-- Award marks for valid points even when the wording is loose, provided the technical substance is right.
-- Give half marks for partially developed points that show the correct principle.
-- Penalise only genuine technical errors, omissions of required matters, and unsupported assertions.`,
+  moderate: `MARKING SEVERITY — MODERATE (pass-oriented marker; the MOST GENEROUS of the three):
+- FULL mark whenever criteria (a) and (c) are met, even if the reference is missing, the wording is loose, or the conclusion is implied.
+- HALF mark where the correct principle is visible but undeveloped or misapplied in part.
+- ZERO only for absent points, plainly wrong technical statements, or invented figures.
+- Do not deduct for presentation, structure, exam technique or missing references.
+- Expected outcome: this severity must produce the HIGHEST total of the three severities for the same answer.`,
 
-  strict: `MARKING SEVERITY — STRICT (standard ICAP examiner):
-- Marks are awarded only for points that are technically correct AND applied to the scenario. Generic knowledge dumps score zero.
-- No credit for a correct conclusion without the supporting reasoning, or reasoning without a conclusion.
-- Deduct for wrong references, wrong figures, wrong standard/section numbers, and for missing required matters.
-- Half marks only where the mark plan clearly splits the point.`,
+  strict: `MARKING SEVERITY — STRICT (standard ICAP professional-level examiner; the MIDDLE of the three):
+- FULL mark only when (a), (b), (c) and (d) are all met.
+- HALF mark where the point is technically correct but not applied to the scenario, OR applied but missing the conclusion/reference.
+- ZERO for generic knowledge dumps, correct conclusions with no reasoning, reasoning with no conclusion, and wrong references, figures, section or standard numbers.
+- Deduct the full point (not half) for any incorrect figure or citation — an accurate-looking but wrong number scores nothing.
+- Expected outcome: materially BELOW the moderate total for the same answer — typically 15-30% fewer marks. If your strict total equals the moderate total, you have mis-marked: re-apply the criteria point by point.`,
 
-  hard: `MARKING SEVERITY — HARD / DIFFICULT (top-of-the-scale examiner, marking to distinction standard):
-- Mark to the highest examiner standard. Award a mark only when the point is technically precise, correctly referenced, applied to the specific facts, and expressed in exam-appropriate language.
-- Zero for vague, hedged, or partially correct statements. No benefit of the doubt anywhere.
-- Explicitly penalise: missing conclusions, missing figures/workings, unreferenced assertions, structural failures (no headings, no matter-by-matter layout), and irrelevant material.
-- State candidly where the answer would fail even if the candidate "knew" the topic.`,
+  hard: `MARKING SEVERITY — HARD / DIFFICULT (distinction-standard examiner; the HARSHEST of the three):
+- FULL mark ONLY when (a), (b), (c) and (d) are met AND the point is expressed in precise exam language with the exact source reference quoted.
+- NO half marks exist at this severity. Every point is FULL or ZERO. Never output 0.5 anywhere in the marks table.
+- ZERO for vague, hedged or partially correct statements, missing workings, unreferenced assertions, and any point where the candidate's wording could be read two ways.
+- Additionally cap the item score: if the item lacks headings/matter-by-matter structure or a stated conclusion, the item cannot exceed 50% of its marks available.
+- State candidly where the answer would fail even though the candidate "knew" the topic.
+- Expected outcome: materially BELOW the strict total for the same answer — typically 25-40% fewer marks than moderate. If your hard total is within half a mark of the strict total, you have mis-marked: re-apply FULL/ZERO with no benefit of the doubt.`,
 };
+
 
 const EXAMINER_PERSONA = `You are an ICAP (Institute of Chartered Accountants of Pakistan) PROFESSIONAL-LEVEL EXAMINER and marker. You mark exactly as the official examiner would: against the syllabus, the applicable standards/laws in the uploaded sources, and the official mark plan.
 
