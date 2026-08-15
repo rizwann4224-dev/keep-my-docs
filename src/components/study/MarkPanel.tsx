@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import * as jobs from "@/lib/study-jobs";
-import type { MarkPart } from "@/lib/study-prompts";
+import type { MarkPart, Rigour } from "@/lib/study-prompts";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
@@ -15,6 +15,13 @@ const OPTIONS: { id: MarkPart; label: string; hint: string }[] = [
   { id: "suggested", label: "Suggested answer", hint: "✅ examiner-standard model answer" },
   { id: "recommendations", label: "Recommendations", hint: "🎯 how to improve" },
 ];
+
+const RIGOURS: { id: Rigour; label: string; hint: string }[] = [
+  { id: "moderate", label: "Moderate", hint: "Credit for correct substance" },
+  { id: "strict", label: "Strict", hint: "Standard ICAP examiner" },
+  { id: "hard", label: "Hard / difficult", hint: "Distinction standard, no benefit of the doubt" },
+];
+
 
 export function MarkPanel({
   subjectId,
