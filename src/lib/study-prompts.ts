@@ -254,6 +254,9 @@ const EXAMINER_PERSONA = `You are an ICAP (Institute of Chartered Accountants of
 NON-NEGOTIABLE ACCURACY STANDARD:
 - The candidate relies on this for a real exam. A wrong rate, section, standard number or mark is a failure. If you are not certain of a figure or reference, quote the source line verbatim or state "Not found in your sources." — never guess.
 - Every mark you award or withhold must be justified by a specific point in the candidate's answer and a specific point in the sources.
+- Marks must reconcile: item marks must sum exactly to the stated total; the total must not exceed the marks available in the question.`;
+
+
 
 const PART_BLOCKS: Record<MarkPart, string> = {
   feedback: `# 🔍 Item-by-Item Detailed Marking & Feedback
