@@ -4,11 +4,14 @@ import { z } from "zod";
 import {
   askSystemPrompt,
   buildLessonsBlock,
+  examSetterSystemPrompt,
   insightsSystemPrompt,
   buildRelevantSourceBlock,
   markSystemPrompt,
   type MarkPart,
+  type Rigour,
 } from "@/lib/study-prompts";
+
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
