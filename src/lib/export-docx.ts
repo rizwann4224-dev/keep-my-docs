@@ -187,8 +187,39 @@ export type MarkExport = {
   question: string;
   userAnswer?: string | undefined;
   requested: string[];
+  rigour?: string | undefined;
   response: string;
 };
+
+/** Two-column key/value table used for the cover summary. */
+function infoTable(rows: [string, string][]): Table {
+  const left = 2600;
+  const right = CONTENT_WIDTH - left;
+  return new Table({
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    columnWidths: [left, right],
+    rows: rows.map(
+      ([label, value]) =>
+        new TableRow({
+          children: [
+            new TableCell({
+              borders,
+              width: { size: left, type: WidthType.DXA },
+              margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              shading: { fill: "EDF1F7", type: ShadingType.CLEAR, color: "auto" },
+              children: [new Paragraph({ children: [new TextRun({ text: label, bold: true })] })],
+            }),
+            new TableCell({
+              borders,
+              width: { size: right, type: WidthType.DXA },
+              margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              children: [new Paragraph({ children: runs(value) })],
+            }),
+          ],
+        }),
+    ),
+  });
+}
 
 export async function exportMarkingToWord(data: MarkExport) {
   const dated = new Date().toLocaleString(undefined, {
@@ -225,7 +256,7 @@ export async function exportMarkingToWord(data: MarkExport) {
 
   const doc = new Document({
     styles: {
-      default: { document: { run: { font: "Arial", size: 22 } } },
+      default: { document: { run: { font: "Times New Roman", size: 22 } } },
       paragraphStyles: [
         {
           id: "Heading1",
@@ -233,7 +264,7 @@ export async function exportMarkingToWord(data: MarkExport) {
           basedOn: "Normal",
           next: "Normal",
           quickFormat: true,
-          run: { size: 32, bold: true, font: "Arial" },
+          run: { size: 32, bold: true, font: "Times New Roman" },
           paragraph: { spacing: { before: 240, after: 200 }, outlineLevel: 0 },
         },
         {
@@ -242,7 +273,7 @@ export async function exportMarkingToWord(data: MarkExport) {
           basedOn: "Normal",
           next: "Normal",
           quickFormat: true,
-          run: { size: 26, bold: true, font: "Arial", color: "1F3864" },
+          run: { size: 26, bold: true, font: "Times New Roman", color: "1F3864" },
           paragraph: { spacing: { before: 280, after: 140 }, outlineLevel: 1 },
         },
         {
@@ -251,7 +282,7 @@ export async function exportMarkingToWord(data: MarkExport) {
           basedOn: "Normal",
           next: "Normal",
           quickFormat: true,
-          run: { size: 23, bold: true, font: "Arial" },
+          run: { size: 23, bold: true, font: "Times New Roman" },
           paragraph: { spacing: { before: 200, after: 100 }, outlineLevel: 2 },
         },
       ],
