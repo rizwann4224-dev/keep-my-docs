@@ -134,6 +134,8 @@ export function AskPanel({
                 exportAskToPdf({
                   notebook: subjectName,
                   title: isExam ? "Exam paper" : "Ask session",
+                  // Exam papers export the questions only — not the brief typed in.
+                  showPrompts: !isExam,
                   turns: turns
                     .filter((t) => t.answer)
                     .map((t) => ({ question: t.question, answer: t.answer })),
