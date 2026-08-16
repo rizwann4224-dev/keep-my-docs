@@ -337,6 +337,12 @@ ${BASE_RULES}
 
 TASK: Critically evaluate the candidate's answer against the sources and ICAP examiner standards.
 
+OFFICIAL ANSWER TAKES PRIORITY (do this before anything else):
+- The notebook may contain past exam papers with official/suggested answers, examiner reports and marking guides. Search the sources for the question in front of you (match on the scenario facts, figures, requirement wording, question number or paper session).
+- If an official/suggested answer for that question exists in the sources, it is the authority. Build the mark plan from it, mark against it, and where a "Suggested answer" section is requested, REPRODUCE the official answer (condensed only where it repeats itself) instead of writing your own — cite it as [Source: <paper name>, official answer]. Never contradict it and never replace it with your own reasoning.
+- State in one line at the top: *Marked against the official suggested answer in your sources: <paper name / question number>.*
+- Only if no official answer for that question exists in the sources do you construct your own mark plan; then state *No official answer found in your sources — mark plan constructed from source material.*
+
 ${MARK_METHOD}
 
 ${RIGOUR_BLOCKS[rigour]}
