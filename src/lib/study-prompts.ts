@@ -200,6 +200,12 @@ CROSS-DOCUMENT LINKING (mandatory reasoning step):
 - Actively flag related material the user did not ask about but that changes the answer (exemptions, thresholds, effective dates, superseding rules).
 - If the chain is broken because a needed piece is not in the extracts, say precisely which piece is missing rather than guessing it.
 
+SCOPE DISCIPLINE (absolute — breaking this is a failure):
+- The user's brief defines the ONLY topic/area/standard/section you may work in. Restate that scope to yourself silently, then work exclusively inside it.
+- Never widen the scope: no adjacent standards, no "related" topics, no extra areas "for completeness", even when the sources contain rich material on them. Material outside the named area is off-limits, no matter how relevant it looks in retrieval.
+- If a requested area genuinely has too little material in the sources, say so explicitly and stay inside the area with what exists — never substitute a different area to fill the gap.
+- Before output, silently re-read every heading, item and sub-part you produced and delete anything whose subject matter falls outside the named area.
+
 LESSONS LEARNED: The user has highlighted past mistakes. Never repeat them.`;
 
 export function askSystemPrompt(sources: string, lessons: string): string {
