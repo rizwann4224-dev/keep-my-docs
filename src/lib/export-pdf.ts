@@ -110,36 +110,49 @@ export function exportAskToPdf(data: AskExport) {
     y += 10;
   };
 
-  // Title block
-  write(`${data.notebook} — ${data.title ?? "Ask session"}`, {
-    size: 19,
-    style: "bold",
-    color: ACCENT,
-    gap: 2,
-  });
-  write(new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }), {
-    size: 9,
-    color: MUTED,
-    gap: 8,
-  });
-  doc.setDrawColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-  doc.setLineWidth(1.2);
-  doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-  y += 18;
+  // Cover band
+  doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+  doc.rect(0, 0, PAGE_W, 92, "F");
+  doc.setFont("times", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(255, 255, 255);
+  doc.text(data.title ?? "Ask session", MARGIN, 44);
+  doc.setFont("times", "italic");
+  doc.setFontSize(11);
+  doc.setTextColor(214, 222, 238);
+  doc.text(data.notebook, MARGIN, 64);
+  doc.setFont("times", "normal");
+  doc.setFontSize(9);
+  doc.text(
+    new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
+    PAGE_W - MARGIN,
+    64,
+    { align: "right" },
+  );
+  y = 92 + 30;
+
+  const showPrompts = data.showPrompts !== false;
 
   data.turns.forEach((turn, index) => {
-    space(48);
-    doc.setFillColor(240, 243, 249);
-    const qLines = doc.splitTextToSize(plain(turn.question), WIDTH - 20) as string[];
-    const qHeight = qLines.length * 15 + 14;
-    doc.rect(MARGIN, y - 12, WIDTH, qHeight, "F");
-    write(`Q${index + 1}. ${plain(turn.question)}`, {
-      size: 12,
-      style: "bold",
-      color: ACCENT,
-      gap: 10,
-      indent: 8,
-    });
+    if (showPrompts) {
+      space(48);
+      const qText = `Q${index + 1}. ${plain(turn.question)}`;
+      const qLines = doc.splitTextToSize(qText, WIDTH - 28) as string[];
+      const qHeight = qLines.length * 16 + 20;
+      doc.setFillColor(241, 244, 250);
+      doc.rect(MARGIN, y - 14, WIDTH, qHeight, "F");
+      doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+      doc.rect(MARGIN, y - 14, 3.5, qHeight, "F");
+      write(qText, {
+        size: 12,
+        style: "bold",
+        color: ACCENT,
+        gap: 14,
+        indent: 14,
+      });
+    } else if (index > 0) {
+      y += 6;
+    }
 
     const lines = turn.answer.replace(/\r/g, "").split("\n");
     let i = 0;
