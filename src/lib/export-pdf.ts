@@ -4,6 +4,8 @@ export type AskExport = {
   notebook: string;
   /** Heading suffix, e.g. "Ask session" or "Exam paper". */
   title?: string;
+  /** When false the user's prompt/brief is omitted and only the content is exported. */
+  showPrompts?: boolean;
   turns: { question: string; answer: string }[];
 };
 
