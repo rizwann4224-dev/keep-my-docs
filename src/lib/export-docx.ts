@@ -228,23 +228,51 @@ export async function exportMarkingToWord(data: MarkExport) {
   });
 
   const children: (Paragraph | Table)[] = [
-    new Paragraph({
-      heading: HeadingLevel.HEADING_1,
-      alignment: AlignmentType.LEFT,
-      children: [new TextRun({ text: `${data.notebook} — Answer & marking` })],
-    }),
-    new Paragraph({
-      spacing: { after: 200 },
-      border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: "1F3864", space: 4 } },
-      children: [
-        new TextRun({
-          text: "ICAP professional-level examiner report",
-          color: "1F3864",
-          size: 22,
-          italics: true,
+    // Navy title band, full content width.
+    new Table({
+      width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+      columnWidths: [CONTENT_WIDTH],
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              borders: {
+                top: { style: BorderStyle.NONE, size: 0, color: "1F3864" },
+                bottom: { style: BorderStyle.NONE, size: 0, color: "1F3864" },
+                left: { style: BorderStyle.NONE, size: 0, color: "1F3864" },
+                right: { style: BorderStyle.NONE, size: 0, color: "1F3864" },
+              },
+              width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+              margins: { top: 220, bottom: 220, left: 220, right: 220 },
+              shading: { fill: "1F3864", type: ShadingType.CLEAR, color: "auto" },
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: "Answer & marking",
+                      bold: true,
+                      size: 34,
+                      color: "FFFFFF",
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: `${data.notebook}  ·  ICAP professional-level examiner report`,
+                      italics: true,
+                      size: 20,
+                      color: "D6DEEE",
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ],
         }),
       ],
     }),
+    new Paragraph({ spacing: { after: 160 }, children: [new TextRun("")] }),
     infoTable([
       ["Notebook", data.notebook],
       ["Generated", dated],
