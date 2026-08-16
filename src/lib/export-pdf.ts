@@ -15,14 +15,39 @@ const PAGE_H = 841.89;
 const WIDTH = PAGE_W - MARGIN * 2;
 const INK: [number, number, number] = [26, 30, 38];
 const ACCENT: [number, number, number] = [31, 56, 100];
-const MUTED: [number, number, number] = [118, 122, 132];
 
-/** Strips markdown emphasis so the PDF reads cleanly. */
+
+/** Emoji/pictographs are not in the PDF core fonts and render as mojibake. */
+const EMOJI = /[\p{Extended_Pictographic}\u{FE0F}\u{20E3}\u{1F3FB}-\u{1F3FF}]/gu;
+
+/** Strips markdown emphasis and emoji so the PDF reads cleanly. */
 function plain(text: string) {
   return text
     .replace(/`{1,3}/g, "")
     .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/(^|\s)\*(?!\s)(.+?)\*/g, "$1$2");
+    .replace(/(^|\s)\*(?!\s)(.+?)\*/g, "$1$2")
+    .replace(EMOJI, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+/** Builds a file name from the question text, e.g. "abc-limited-internal-controls". */
+export function fileNameFromQuestion(question: string, fallback: string) {
+  const first =
+    plain(question)
+      .replace(/^#{1,6}\s*/gm, "")
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 2) ?? "";
+  const cleaned = first
+    .replace(/[^\w\s&-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 70)
+    .trim()
+    .replace(/\s/g, "-")
+    .toLowerCase();
+  return cleaned || fallback;
 }
 
 function splitRow(line: string): string[] {
@@ -213,16 +238,8 @@ export function exportAskToPdf(data: AskExport) {
     y += 18;
   });
 
-  const pages = doc.getNumberOfPages();
-  for (let p = 1; p <= pages; p++) {
-    doc.setPage(p);
-    doc.setFont("times", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
-    doc.text(data.notebook, MARGIN, PAGE_H - 28);
-    doc.text(`${p} / ${pages}`, PAGE_W - MARGIN, PAGE_H - 28, { align: "right" });
-  }
-
-  const safe = data.notebook.replace(/[^\w\-]+/g, "-").replace(/^-|-$/g, "") || "notebook";
-  doc.save(`${safe}-${(data.title ?? "ask").toLowerCase().replace(/\s+/g, "-")}.pdf`);
+  const fallback =
+    data.notebook.replace(/[^\w\-]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "notebook";
+  const name = fileNameFromQuestion(data.turns[0]?.question ?? "", fallback);
+  doc.save(`${name}.pdf`);
 }
