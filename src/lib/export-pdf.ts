@@ -15,7 +15,7 @@ const PAGE_H = 841.89;
 const WIDTH = PAGE_W - MARGIN * 2;
 const INK: [number, number, number] = [26, 30, 38];
 const ACCENT: [number, number, number] = [31, 56, 100];
-const MUTED: [number, number, number] = [118, 122, 132];
+
 
 /** Emoji/pictographs are not in the PDF core fonts and render as mojibake. */
 const EMOJI = /[\p{Extended_Pictographic}\u{FE0F}\u{20E3}\u{1F3FB}-\u{1F3FF}]/gu;

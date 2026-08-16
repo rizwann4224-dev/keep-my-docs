@@ -13,6 +13,7 @@ import {
   TextRun,
   WidthType,
 } from "docx";
+import { fileNameFromQuestion } from "@/lib/export-pdf";
 
 const CONTENT_WIDTH = 9360;
 
@@ -369,7 +370,10 @@ export async function exportMarkingToWord(data: MarkExport) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${data.notebook.replace(/[^\w\s-]/g, "").trim() || "marking"} - marking.docx`;
+  a.download = `${fileNameFromQuestion(
+    data.question,
+    data.notebook.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "marking",
+  )}.docx`;
   document.body.appendChild(a);
   a.click();
   a.remove();
