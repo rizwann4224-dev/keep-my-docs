@@ -238,16 +238,8 @@ export function exportAskToPdf(data: AskExport) {
     y += 18;
   });
 
-  const pages = doc.getNumberOfPages();
-  for (let p = 1; p <= pages; p++) {
-    doc.setPage(p);
-    doc.setFont("times", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
-    doc.text(data.notebook, MARGIN, PAGE_H - 28);
-    doc.text(`${p} / ${pages}`, PAGE_W - MARGIN, PAGE_H - 28, { align: "right" });
-  }
-
-  const safe = data.notebook.replace(/[^\w\-]+/g, "-").replace(/^-|-$/g, "") || "notebook";
-  doc.save(`${safe}-${(data.title ?? "ask").toLowerCase().replace(/\s+/g, "-")}.pdf`);
+  const fallback =
+    data.notebook.replace(/[^\w\-]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "notebook";
+  const name = fileNameFromQuestion(data.turns[0]?.question ?? "", fallback);
+  doc.save(`${name}.pdf`);
 }
