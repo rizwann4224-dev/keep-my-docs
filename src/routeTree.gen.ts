@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IcapRouteImport } from './routes/icap'
 import { Route as ApiStudyRouteImport } from './routes/api/study'
+import { Route as ApiPublicIcapRouteImport } from './routes/api/public/icap'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +35,25 @@ const ApiStudyRoute = ApiStudyRouteImport.update({
   path: '/api/study',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicIcapRoute = ApiPublicIcapRouteImport.update({
+  id: '/api/public/icap',
+  path: '/api/public/icap',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/icap': typeof IcapRoute
   '/api/study': typeof ApiStudyRoute
+  '/api/public/icap': typeof ApiPublicIcapRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/icap': typeof IcapRoute
   '/api/study': typeof ApiStudyRoute
+  '/api/public/icap': typeof ApiPublicIcapRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +61,14 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/icap': typeof IcapRoute
   '/api/study': typeof ApiStudyRoute
+  '/api/public/icap': typeof ApiPublicIcapRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/icap' | '/api/study'
+  fullPaths: '/' | '/auth' | '/icap' | '/api/study' | '/api/public/icap'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/icap' | '/api/study'
-  id: '__root__' | '/' | '/auth' | '/icap' | '/api/study'
+  to: '/' | '/auth' | '/icap' | '/api/study' | '/api/public/icap'
+  id: '__root__' | '/' | '/auth' | '/icap' | '/api/study' | '/api/public/icap'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +76,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   IcapRoute: typeof IcapRoute
   ApiStudyRoute: typeof ApiStudyRoute
+  ApiPublicIcapRoute: typeof ApiPublicIcapRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +109,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiStudyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/icap': {
+      id: '/api/public/icap'
+      path: '/api/public/icap'
+      fullPath: '/api/public/icap'
+      preLoaderRoute: typeof ApiPublicIcapRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +124,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   IcapRoute: IcapRoute,
   ApiStudyRoute: ApiStudyRoute,
+  ApiPublicIcapRoute: ApiPublicIcapRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

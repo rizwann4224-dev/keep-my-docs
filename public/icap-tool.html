@@ -1691,13 +1691,34 @@ async function callGemini(system, user, tokens, isRetry){
   return {ok:true, text:txt};
 }
 
-async function callAPI(system, user, tokens){
-  if(PROVIDER==="gemini"){
-    if(!APIKEY) return {ok:false, status:0, body:"Paste your free Google AI Studio key first."};
-    return callGemini(system, user, tokens);
+// Default provider: the app's own AI (Lovable AI). It handles model choice and
+// automatically falls back to the free backup key when credits run out. The
+// Claude / Google options below stay available if the user pastes their own key.
+async function callLovable(system, user, tokens){
+  let res;
+  try{
+    res = await fetchTimed("/api/public/icap",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({system: system, user: user, tokens: tokens || 1000})
+    }, 120000);
+  }catch(e){
+    return {ok:false, status:503, body:"No reply in time from the app AI."};
   }
-  return callAnthropic(system, user, tokens);
+  if(!res.ok){
+    const body = await res.text().catch(()=>"");
+    const ra = res.headers.get("retry-after");
+    return {ok:false, status:res.status, body: body, retryAfter: ra ? parseFloat(ra) : 0};
+  }
+  const data = await res.json().catch(()=>({}));
+  return {ok:true, text:String(data.text||"").trim()};
 }
+
+async function callAPI(system, user, tokens){
+  if(PROVIDER==="gemini" && APIKEY) return callGemini(system, user, tokens);
+  if(PROVIDER==="claude" && APIKEY) return callAnthropic(system, user, tokens);
+  return callLovable(system, user, tokens);
+}
+
 
 async function ask(system, user, tokens){
   // Busy / overloaded / rate-limited answers are transient. Keep trying with a
