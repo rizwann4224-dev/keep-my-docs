@@ -3,6 +3,10 @@
 <title>The Marking Gutter — ICAP CFAP self-study (Scheme 2025)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://generativelanguage.googleapis.com" crossorigin>
+<link rel="dns-prefetch" href="https://generativelanguage.googleapis.com">
+<link rel="preconnect" href="https://api.anthropic.com" crossorigin>
+<link rel="dns-prefetch" href="https://api.anthropic.com">
 <link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,600;1,400&family=Archivo+Narrow:wght@400;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
@@ -1588,7 +1592,7 @@ async function callAnthropic(system, user, tokens){
     headers["anthropic-version"] = "2023-06-01";
     headers["anthropic-dangerous-direct-browser-access"] = "true";
   }
-  const res = await fetch("https://api.anthropic.com/v1/messages",{
+  const res = await fetchTimed("https://api.anthropic.com/v1/messages",{
     method:"POST", headers: headers,
     body: JSON.stringify({
       model: APIKEY ? "claude-sonnet-4-5-20250929" : "claude-sonnet-4-6",
@@ -1596,27 +1600,54 @@ async function callAnthropic(system, user, tokens){
       system: system,
       messages:[{role:"user",content:user}]
     })
-  });
-  if(!res.ok) return {ok:false, status:res.status, body: await res.text().catch(()=>"")};
+  }, 75000).catch(()=>null);
+  if(!res) return {ok:false, status:503, body:"No reply in time."};
+  if(!res.ok){
+    const ra = res.headers.get("retry-after");
+    return {ok:false, status:res.status, body: await res.text().catch(()=>""), retryAfter: ra ? parseFloat(ra) : 0};
+  }
   const data = await res.json();
   return {ok:true, text:(data.content||[]).map(b=>b.type==="text"?b.text:"").join("\n").trim()};
 }
 
 function gemBody(system, user, tokens, mdl){
-  const cfg = { maxOutputTokens: (tokens||1000)*3 };
+  // Speed: a tighter output budget and the smallest thinking setting the model
+  // accepts. Thinking tokens are the single biggest cause of slow replies.
+  const cfg = { maxOutputTokens: Math.round((tokens||1000)*1.8) };
   if(/gemini-[3-9]/.test(mdl)){
     // 3.x retired temperature/top_p/top_k. Thinking is on by default and eats
-    // the output budget, so keep it short for recall and marking work.
+    // the output budget, so keep it minimal for recall and marking work.
     cfg.thinkingConfig = { thinkingLevel: "low" };
   }else{
     cfg.temperature = 0.7;
-    if(/2\.5-flash/.test(mdl)) cfg.thinkingConfig = { thinkingBudget: 0 };
+    if(/2\.5-flash|2\.5-pro/.test(mdl)) cfg.thinkingConfig = { thinkingBudget: 0 };
   }
   return JSON.stringify({
     system_instruction:{parts:[{text:system}]},
     contents:[{role:"user",parts:[{text:user}]}],
     generationConfig: cfg
   });
+}
+
+// Fetch that never hangs forever: a stalled socket is worse than a retry.
+async function fetchTimed(url, opts, ms){
+  const ctl = new AbortController();
+  const t = setTimeout(()=>ctl.abort(), ms || 60000);
+  try{
+    return await fetch(url, Object.assign({}, opts, {signal: ctl.signal, keepalive:false}));
+  }finally{ clearTimeout(t); }
+}
+
+// When the chosen model is overloaded, swap to the next usable one instead of
+// just waiting. Returns true if a different model is now selected.
+function rotateGemModel(){
+  if(!gemAvailable || gemAvailable.length < 2) return false;
+  const i = gemAvailable.indexOf(gemModel);
+  const next = gemAvailable[(i + 1) % gemAvailable.length];
+  if(!next || next === gemModel) return false;
+  gemModel = next;
+  try{ fillModelPicker(); }catch(e){}
+  return true;
 }
 
 async function callGemini(system, user, tokens, isRetry){
@@ -1626,10 +1657,16 @@ async function callGemini(system, user, tokens, isRetry){
   }catch(e){
     return {ok:false, status:0, body:String(e.message||e)};
   }
-  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+mdl+":generateContent?key="+encodeURIComponent(APIKEY),{
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: gemBody(system, user, tokens, mdl)
-  });
+  let res;
+  try{
+    res = await fetchTimed("https://generativelanguage.googleapis.com/v1beta/models/"+mdl+":generateContent?key="+encodeURIComponent(APIKEY),{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: gemBody(system, user, tokens, mdl)
+    }, 75000);
+  }catch(e){
+    // Timed out or the network blipped — treat as busy so ask() retries.
+    return {ok:false, status:503, body:"No reply in time from "+mdl+"."};
+  }
   if(!res.ok){
     const body = await res.text().catch(()=>"");
     // Model retired underneath us: forget it, re-list, try once more.
@@ -1637,7 +1674,12 @@ async function callGemini(system, user, tokens, isRetry){
       gemModel = null; gemPinned = ""; try{localStorage.removeItem("mg_gem_model");}catch(e){}
       return callGemini(system, user, tokens, true);
     }
-    return {ok:false, status:res.status, body:(mdl+" — "+body)};
+    // Overloaded / rate-limited: try a sibling model straight away, once.
+    if((res.status===429 || res.status===503 || res.status>=500) && !isRetry && rotateGemModel()){
+      return callGemini(system, user, tokens, true);
+    }
+    const ra = res.headers.get("retry-after");
+    return {ok:false, status:res.status, body:(mdl+" — "+body), retryAfter: ra ? parseFloat(ra) : 0};
   }
   const data = await res.json();
   const cand = (data.candidates||[])[0] || {};
@@ -1649,37 +1691,67 @@ async function callGemini(system, user, tokens, isRetry){
   return {ok:true, text:txt};
 }
 
-async function callAPI(system, user, tokens){
-  if(PROVIDER==="gemini"){
-    if(!APIKEY) return {ok:false, status:0, body:"Paste your free Google AI Studio key first."};
-    return callGemini(system, user, tokens);
+// Default provider: the app's own AI (Lovable AI). It handles model choice and
+// automatically falls back to the free backup key when credits run out. The
+// Claude / Google options below stay available if the user pastes their own key.
+async function callLovable(system, user, tokens){
+  let res;
+  try{
+    res = await fetchTimed("/api/public/icap",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({system: system, user: user, tokens: tokens || 1000})
+    }, 120000);
+  }catch(e){
+    return {ok:false, status:503, body:"No reply in time from the app AI."};
   }
-  return callAnthropic(system, user, tokens);
+  if(!res.ok){
+    const body = await res.text().catch(()=>"");
+    const ra = res.headers.get("retry-after");
+    return {ok:false, status:res.status, body: body, retryAfter: ra ? parseFloat(ra) : 0};
+  }
+  const data = await res.json().catch(()=>({}));
+  return {ok:true, text:String(data.text||"").trim()};
 }
 
+async function callAPI(system, user, tokens){
+  if(PROVIDER==="gemini" && APIKEY) return callGemini(system, user, tokens);
+  if(PROVIDER==="claude" && APIKEY) return callAnthropic(system, user, tokens);
+  return callLovable(system, user, tokens);
+}
+
+
 async function ask(system, user, tokens){
+  // Busy / overloaded / rate-limited answers are transient. Keep trying with a
+  // growing, jittered wait (and honour Retry-After) instead of giving up and
+  // showing the student an error.
+  const MAX_TRIES = 7;
   let last = null;
-  for(let i=0;i<3;i++){
+  for(let i=0;i<MAX_TRIES;i++){
     let r;
     try{
       r = await callAPI(system, user, tokens);
     }catch(e){
       last = new Error(OFFLINE_MSG);
-      await sleep(700*(i+1));
+      await sleep(600*(i+1));
       continue;
     }
     if(r.ok){
-      if(!r.text) throw new Error("Model returned nothing. Try again.");
-      return r.text;
+      if(r.text) return r.text;
+      last = new Error("Model returned nothing.");
+      await sleep(600*(i+1));
+      continue;
     }
-    if(r.status===429 || r.status>=500){
-      last = new Error("Model is busy ("+r.status+"). Retrying…");
-      await sleep(1800*(i+1));
+    if(r.status===429 || r.status===408 || r.status===409 || r.status>=500 || r.status===0 && /busy|overload|timeout|time/i.test(String(r.body||""))){
+      last = new Error("Model is busy ("+r.status+").");
+      if(i === MAX_TRIES-1) break;
+      const hinted = (r.retryAfter && isFinite(r.retryAfter)) ? r.retryAfter*1000 : 0;
+      const backoff = Math.min(1000 * Math.pow(1.8, i), 15000) + Math.random()*400;
+      await sleep(Math.max(hinted, backoff));
       continue;
     }
     throw new Error("Request refused ("+r.status+"). "+String(r.body||"").slice(0,200));
   }
-  throw last || new Error(OFFLINE_MSG);
+  throw new Error("The model stayed busy through "+MAX_TRIES+" attempts. Wait a few seconds and press the button again — nothing you typed is lost." + (last ? " (last: "+last.message+")" : ""));
 }
 function asJSON(t){
   const s = t.replace(/```json/gi,"").replace(/```/g,"").trim();
