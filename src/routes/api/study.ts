@@ -97,7 +97,11 @@ export const Route = createFileRoute("/api/study")({
           system = insightsSystemPrompt(attempts, lessons);
         } else {
           const retrievalQuery = `${data.question}\n${data.userAnswer ?? ""}`;
-          const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery);
+          // Marking and exam-setting only need the passages that bear on the question:
+          // a leaner context is what makes the first tokens arrive in seconds.
+          const budget =
+            data.mode === "mark" ? 90_000 : data.mode === "exam" ? 110_000 : 140_000;
+          const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery, budget);
           system =
             data.mode === "mark"
               ? markSystemPrompt(
