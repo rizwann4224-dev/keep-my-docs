@@ -128,9 +128,9 @@ export const Route = createFileRoute("/api/study")({
         // next year?", "rephrase that") resolve against the previous question.
         const priorMessages =
           data.mode === "ask" || data.mode === "exam"
-            ? (data.history ?? []).slice(-8).flatMap((turn) => [
+            ? (data.history ?? []).slice(-5).flatMap((turn) => [
                 { role: "user" as const, content: turn.question },
-                { role: "assistant" as const, content: turn.answer.slice(0, 6000) },
+                { role: "assistant" as const, content: turn.answer.slice(0, 2500) },
               ])
             : [];
 
