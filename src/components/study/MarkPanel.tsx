@@ -135,14 +135,17 @@ export function MarkPanel({
         <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="text-base font-semibold text-foreground">Question / scenario</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Include all sub-parts (i), (ii), (iii) and the marks available.
+            Include all sub-parts (i), (ii), (iii) and the marks available. Long scenarios are fully accepted.
           </p>
           <Textarea
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             placeholder="Paste the full question here…"
-            className="mt-4 min-h-56"
+            className="mt-4 min-h-72 resize-y"
           />
+          <p className="mt-1 text-right text-xs text-muted-foreground">
+            {question.length.toLocaleString()} chars
+          </p>
         </div>
         <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="text-base font-semibold text-foreground">
@@ -157,8 +160,11 @@ export function MarkPanel({
             value={userAnswer}
             onChange={(e) => setUserAnswer(e.target.value)}
             placeholder="Type or paste your answer…"
-            className="mt-4 min-h-56"
+            className="mt-4 min-h-72 resize-y"
           />
+          <p className="mt-1 text-right text-xs text-muted-foreground">
+            {userAnswer.length.toLocaleString()} chars
+          </p>
         </div>
       </div>
 
