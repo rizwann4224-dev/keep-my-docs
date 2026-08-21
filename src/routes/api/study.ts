@@ -97,7 +97,11 @@ export const Route = createFileRoute("/api/study")({
           system = insightsSystemPrompt(attempts, lessons);
         } else {
           const retrievalQuery = `${data.question}\n${data.userAnswer ?? ""}`;
-          const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery);
+          // Marking and exam-setting only need the passages that bear on the question:
+          // a leaner context is what makes the first tokens arrive in seconds.
+          const budget =
+            data.mode === "mark" ? 90_000 : data.mode === "exam" ? 110_000 : 140_000;
+          const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery, budget);
           system =
             data.mode === "mark"
               ? markSystemPrompt(
@@ -124,9 +128,9 @@ export const Route = createFileRoute("/api/study")({
         // next year?", "rephrase that") resolve against the previous question.
         const priorMessages =
           data.mode === "ask" || data.mode === "exam"
-            ? (data.history ?? []).slice(-8).flatMap((turn) => [
+            ? (data.history ?? []).slice(-5).flatMap((turn) => [
                 { role: "user" as const, content: turn.question },
-                { role: "assistant" as const, content: turn.answer.slice(0, 6000) },
+                { role: "assistant" as const, content: turn.answer.slice(0, 2500) },
               ])
             : [];
 
@@ -163,7 +167,9 @@ export const Route = createFileRoute("/api/study")({
 
         // Allowance/rate-limit exhausted on the shared gateway — fall back to the
         // project's own Gemini key so the user is never blocked.
-        if (!upstream && (lastStatus === 402 || lastStatus === 429)) {
+        // Any gateway failure (credits, rate limit, upstream error) falls back to the
+        // project's own Gemini key so a marking run never dead-ends.
+        if (!upstream) {
           const googleKey = process.env["GEMINI_API_KEY"];
           if (googleKey) {
             for (const model of GOOGLE_MODEL_CHAIN) {
