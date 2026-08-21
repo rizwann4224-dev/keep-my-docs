@@ -167,7 +167,9 @@ export const Route = createFileRoute("/api/study")({
 
         // Allowance/rate-limit exhausted on the shared gateway — fall back to the
         // project's own Gemini key so the user is never blocked.
-        if (!upstream && (lastStatus === 402 || lastStatus === 429)) {
+        // Any gateway failure (credits, rate limit, upstream error) falls back to the
+        // project's own Gemini key so a marking run never dead-ends.
+        if (!upstream) {
           const googleKey = process.env["GEMINI_API_KEY"];
           if (googleKey) {
             for (const model of GOOGLE_MODEL_CHAIN) {
