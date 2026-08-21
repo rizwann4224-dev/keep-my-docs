@@ -35,7 +35,7 @@ const Body = z.object({
   rigour: z.enum(["moderate", "strict", "hard"]).optional(),
   history: z
     .array(z.object({ question: z.string(), answer: z.string() }))
-    .max(20)
+    .max(40)
     .optional(),
 });
 
@@ -100,7 +100,7 @@ export const Route = createFileRoute("/api/study")({
           // Marking and exam-setting only need the passages that bear on the question:
           // a leaner context is what makes the first tokens arrive in seconds.
           const budget =
-            data.mode === "mark" ? 90_000 : data.mode === "exam" ? 110_000 : 140_000;
+            data.mode === "mark" ? 250_000 : data.mode === "exam" ? 300_000 : 350_000;
           const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery, budget);
           system =
             data.mode === "mark"
@@ -128,9 +128,9 @@ export const Route = createFileRoute("/api/study")({
         // next year?", "rephrase that") resolve against the previous question.
         const priorMessages =
           data.mode === "ask" || data.mode === "exam"
-            ? (data.history ?? []).slice(-5).flatMap((turn) => [
+            ? (data.history ?? []).slice(-12).flatMap((turn) => [
                 { role: "user" as const, content: turn.question },
-                { role: "assistant" as const, content: turn.answer.slice(0, 2500) },
+                { role: "assistant" as const, content: turn.answer.slice(0, 4000) },
               ])
             : [];
 
