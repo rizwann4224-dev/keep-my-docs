@@ -91,7 +91,9 @@ export const Route = createFileRoute("/api/study")({
             .eq("subject_id", data.subjectId)
             .eq("mode", "mark")
             .order("created_at", { ascending: true })
-            .limit(24);
+            // Every marked attempt in the notebook — the diagnostic must aggregate all of them.
+            .limit(500);
+
 
           if (!attempts || attempts.length === 0) {
             return new Response(

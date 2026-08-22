@@ -425,13 +425,19 @@ export type MarkedAttempt = {
 /** Aggregated strengths / weaknesses across everything the user has had marked. */
 export function insightsSystemPrompt(attempts: MarkedAttempt[], lessons: string): string {
   const single = attempts.length === 1;
+  // Every marked attempt must be represented. Share a fixed character budget across
+  // them so a large notebook trims each attempt rather than dropping attempts.
+  const TOTAL_BUDGET = 320_000;
+  const per = Math.max(1_800, Math.floor(TOTAL_BUDGET / Math.max(1, attempts.length)));
+  const qCap = Math.max(400, Math.floor(per * 0.2));
+  const aCap = Math.max(500, Math.floor(per * 0.3));
+  const fCap = Math.max(900, Math.floor(per * 0.5));
   const body = attempts
     .map(
       (a, i) =>
-        `### ATTEMPT ${i + 1} (${new Date(a.created_at).toISOString().slice(0, 10)})\nQUESTION:\n${a.question.slice(0, 3000)}\n\nCANDIDATE ANSWER:\n${a.user_answer?.trim().slice(0, 4000) || "(not provided)"}\n\nMARKER FEEDBACK:\n${a.response.slice(0, 6000)}`,
+        `### ATTEMPT ${i + 1} (${new Date(a.created_at).toISOString().slice(0, 10)})\nQUESTION:\n${a.question.slice(0, qCap)}\n\nCANDIDATE ANSWER:\n${a.user_answer?.trim().slice(0, aCap) || "(not provided)"}\n\nMARKER FEEDBACK:\n${a.response.slice(0, fCap)}`,
     )
-    .join("\n\n---\n\n")
-    .slice(0, 90_000);
+    .join("\n\n---\n\n");
 
   return `You are a strict examiner-coach producing a performance diagnostic from a candidate's marked attempts.
 
@@ -441,7 +447,8 @@ RULES:
 - Group the attempts by topic. One table row per topic.
 - Average score % = (marks awarded ÷ marks available) across that topic's questions, as a whole-number percentage. If marks are not stated for a question, exclude it from the average and write "n/a" when no question in that topic has marks.
 - Be dense and specific. No filler, no motivational language, no praise.
-- ${single ? "There is ONE attempt: report on it only." : `There are ${attempts.length} attempts: aggregate per topic across all of them.`}
+- ${single ? "There is ONE attempt: report on it only." : `There are ${attempts.length} attempts. You MUST read and account for ALL ${attempts.length} of them — every attempt belongs to exactly one topic row. The "Questions solved" column must sum to exactly ${attempts.length}. Do not sample, do not stop early, do not analyse only the first few.`}
+
 
 OUTPUT FORMAT — output NOTHING except the heading and the table below. No intro, no closing note, no extra sections, no bullets outside the table.
 
