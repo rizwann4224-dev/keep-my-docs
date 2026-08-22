@@ -6,6 +6,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/study/Markdown";
 import { ThinkingStatus } from "@/components/study/ThinkingStatus";
+import { exportInsightsToPdf } from "@/lib/export-pdf";
+import { exportInsightsToWord } from "@/lib/export-docx";
+
 
 export function PerformancePanel({ subjectId }: { subjectId: string }) {
   const key = `${subjectId}:insights`;
