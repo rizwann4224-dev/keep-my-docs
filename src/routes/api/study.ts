@@ -65,11 +65,15 @@ export const Route = createFileRoute("/api/study")({
         if (!parsed.success) return new Response("Bad request", { status: 400 });
         const data = parsed.data;
 
+        // Insights never reads source documents — skipping the (large) extracted_text
+        // fetch is the single biggest latency win for the diagnostic.
         const [{ data: docs }, { data: notes }] = await Promise.all([
-          supabase
-            .from("documents")
-            .select("name, extracted_text")
-            .eq("subject_id", data.subjectId),
+          data.mode === "insights"
+            ? Promise.resolve({ data: [] as { name: string; extracted_text: string }[] })
+            : supabase
+                .from("documents")
+                .select("name, extracted_text")
+                .eq("subject_id", data.subjectId),
           supabase
             .from("learning_notes")
             .select("content")
@@ -87,7 +91,8 @@ export const Route = createFileRoute("/api/study")({
             .eq("subject_id", data.subjectId)
             .eq("mode", "mark")
             .order("created_at", { ascending: true })
-            .limit(40);
+            .limit(24);
+
           if (!attempts || attempts.length === 0) {
             return new Response(
               "No marked attempts yet — answer a question in Answer & marking first.",
