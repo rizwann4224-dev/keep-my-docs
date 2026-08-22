@@ -6,6 +6,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/study/Markdown";
 import { ThinkingStatus } from "@/components/study/ThinkingStatus";
+import { exportInsightsToPdf } from "@/lib/export-pdf";
+import { exportInsightsToWord } from "@/lib/export-docx";
+
 
 export function PerformancePanel({ subjectId }: { subjectId: string }) {
   const key = `${subjectId}:insights`;
@@ -56,11 +59,28 @@ export function PerformancePanel({ subjectId }: { subjectId: string }) {
           <Button onClick={analyse} disabled={running || count === 0}>
             {running ? "Analysing…" : latest ? "Re-analyse" : "Analyse my performance"}
           </Button>
+          {latest?.answer && !running && (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => exportInsightsToPdf(latest.answer)}
+              >
+                Export PDF
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => void exportInsightsToWord(latest.answer)}
+              >
+                Export Word
+              </Button>
+            </>
+          )}
           <span className="text-sm text-muted-foreground">
             {count} marked attempt{count === 1 ? "" : "s"} in this notebook
           </span>
         </div>
       </div>
+
 
       {latest && (
         <div className="rounded-xl border border-border bg-card p-6">

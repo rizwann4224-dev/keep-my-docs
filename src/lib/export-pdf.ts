@@ -243,3 +243,82 @@ export function exportAskToPdf(data: AskExport) {
   const name = fileNameFromQuestion(data.turns[0]?.question ?? "", fallback);
   doc.save(`${name}.pdf`);
 }
+
+/**
+ * Performance overview export: landscape A4, one heading and one table.
+ * Deliberately has no cover band, no header and no footer.
+ */
+export function exportInsightsToPdf(markdown: string, fallbackName = "performance-overview") {
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const pageW = PAGE_H;
+  const pageH = PAGE_W;
+  const width = pageW - MARGIN * 2;
+  let y = MARGIN;
+
+  const space = (needed: number) => {
+    if (y + needed > pageH - MARGIN) {
+      doc.addPage();
+      y = MARGIN;
+    }
+  };
+
+  doc.setFont("times", "bold");
+  doc.setFontSize(18);
+  doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+  doc.text("Performance Overview", MARGIN, y + 6);
+  y += 28;
+
+  const lines = markdown.replace(/\r/g, "").split("\n");
+  const rows: string[][] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line.startsWith("|")) continue;
+    const cells = splitRow(line);
+    if (!isDivider(cells)) rows.push(cells);
+  }
+
+  if (rows.length === 0) {
+    doc.setFont("times", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(INK[0], INK[1], INK[2]);
+    for (const line of doc.splitTextToSize(plain(markdown), width) as string[]) {
+      space(16);
+      doc.text(line, MARGIN, y);
+      y += 16;
+    }
+    doc.save(`${fallbackName}.pdf`);
+    return;
+  }
+
+  const columns = Math.max(...rows.map((r) => r.length));
+  const colW = width / columns;
+  const size = 9.5;
+  const lh = size * 1.3;
+
+  rows.forEach((cells, rowIndex) => {
+    doc.setFont("times", rowIndex === 0 ? "bold" : "normal");
+    doc.setFontSize(size);
+    const wrapped = Array.from(
+      { length: columns },
+      (_, i) => doc.splitTextToSize(cells[i] ?? "", colW - 12) as string[],
+    );
+    const height = Math.max(...wrapped.map((w) => w.length)) * lh + 10;
+    space(height);
+    if (rowIndex === 0) {
+      doc.setFillColor(237, 241, 247);
+      doc.rect(MARGIN, y - 2, width, height, "F");
+    }
+    doc.setDrawColor(205, 210, 220);
+    doc.setLineWidth(0.5);
+    for (let i = 0; i < columns; i++) doc.rect(MARGIN + i * colW, y - 2, colW, height);
+    doc.setTextColor(INK[0], INK[1], INK[2]);
+    wrapped.forEach((cellLines, i) => {
+      cellLines.forEach((line, li) => {
+        doc.text(line, MARGIN + i * colW + 6, y + 10 + li * lh);
+      });
+    });
+    y += height;
+  });
+
+  doc.save(`${fallbackName}.pdf`);
+}

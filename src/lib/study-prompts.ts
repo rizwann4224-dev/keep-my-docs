@@ -428,36 +428,34 @@ export function insightsSystemPrompt(attempts: MarkedAttempt[], lessons: string)
   const body = attempts
     .map(
       (a, i) =>
-        `### ATTEMPT ${i + 1} (${new Date(a.created_at).toISOString().slice(0, 10)})\nQUESTION:\n${a.question}\n\nCANDIDATE ANSWER:\n${a.user_answer?.trim() || "(not provided)"}\n\nMARKER FEEDBACK:\n${a.response}`,
+        `### ATTEMPT ${i + 1} (${new Date(a.created_at).toISOString().slice(0, 10)})\nQUESTION:\n${a.question.slice(0, 3000)}\n\nCANDIDATE ANSWER:\n${a.user_answer?.trim().slice(0, 4000) || "(not provided)"}\n\nMARKER FEEDBACK:\n${a.response.slice(0, 6000)}`,
     )
     .join("\n\n---\n\n")
-    .slice(0, 160_000);
+    .slice(0, 90_000);
 
   return `You are a strict examiner-coach producing a performance diagnostic from a candidate's marked attempts.
 
 RULES:
 - Base every statement on the marked attempts below. Never invent topics that do not appear.
-- Name topics precisely (the actual syllabus topic/standard/section), not vague skills.
-- Be dense and specific. No filler, no motivational language.
-- ${single ? "There is ONE attempt: report on that attempt only, and say the picture will sharpen as more attempts are marked." : `There are ${attempts.length} attempts: AGGREGATE across all of them. Count how many attempts each weakness appears in and rank by frequency and severity, with a recurring-issue flag for anything appearing in 2 or more attempts.`}
+- Name topics and SUB-SECTIONS precisely (actual syllabus topic / standard / section), not vague skills.
+- Group the attempts by topic. One table row per topic.
+- Average score % = (marks awarded ÷ marks available) across that topic's questions, as a whole-number percentage. If marks are not stated for a question, exclude it from the average and write "n/a" when no question in that topic has marks.
+- Be dense and specific. No filler, no motivational language, no praise.
+- ${single ? "There is ONE attempt: report on it only." : `There are ${attempts.length} attempts: aggregate per topic across all of them.`}
 
-OUTPUT EXACTLY THESE SECTIONS (markdown):
+OUTPUT FORMAT — output NOTHING except the heading and the table below. No intro, no closing note, no extra sections, no bullets outside the table.
 
-# 📈 Performance Overview
-One paragraph: attempts analysed${single ? "" : ", overall accuracy trend"}, average mark where marks are available.
+# Performance Overview
 
-# ⚠️ Weak Areas — Priority Order
-A markdown table: | Topic | Times seen | What goes wrong | Fix |
-Ordered most damaging first.
+| Topic | Questions solved | Average score % | Weak sub-sections | Cause of weakness | How to overcome for the exam |
+|---|---|---|---|---|---|
 
-# ✅ Strong Areas
-Bullets: topic — evidence from the attempts.
-
-# 🔁 Recurring Mistakes
-${single ? "State whether any mistake repeated within this attempt; otherwise say more attempts are needed." : "Bullets for every mistake appearing in 2+ attempts, with the count."}
-
-# 🎯 Study Plan
-3-6 ranked actions targeting the weak areas above.
+Row rules:
+- "Weak sub-sections": list the specific sub-sections that went wrong, separated by semicolons (e.g. "Threats to independence; Safeguards wording").
+- "Cause of weakness": WHY it went wrong — misapplied rule, missing computation step, no source citation, poor exam language, incomplete coverage. Be concrete and tie it to what the marker said.
+- "How to overcome for the exam": the specific corrective action for that topic (what to drill, what structure/wording to use, what rule to memorise) drawn from the solved-question analysis.
+- Order rows worst-performing first.
+- Keep each cell tight — full sentences allowed but no paragraphs.
 
 LESSONS THE USER ALREADY FLAGGED:
 ${lessons}
@@ -465,3 +463,4 @@ ${lessons}
 MARKED ATTEMPTS:
 ${body}`;
 }
+

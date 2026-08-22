@@ -4,6 +4,7 @@ import {
   Document,
   HeadingLevel,
   LevelFormat,
+  PageOrientation,
   Packer,
   Paragraph,
   ShadingType,
@@ -374,6 +375,100 @@ export async function exportMarkingToWord(data: MarkExport) {
     data.question,
     data.notebook.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "marking",
   )}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/**
+ * Performance overview export: landscape page, one heading and one table.
+ * No header, no footer, nothing else.
+ */
+export async function exportInsightsToWord(markdown: string, fileName = "performance-overview") {
+  const LANDSCAPE_WIDTH = 15840 - 1440 * 2;
+  const lines = markdown.replace(/\r/g, "").split("\n");
+  const tableLines = lines.filter((l) => l.trim().startsWith("|"));
+
+  const children: (Paragraph | Table)[] = [
+    new Paragraph({
+      heading: HeadingLevel.HEADING_1,
+      spacing: { after: 200 },
+      children: [new TextRun({ text: "Performance Overview", bold: true, color: "1F3864" })],
+    }),
+  ];
+
+  if (tableLines.length) {
+    const rows = tableLines
+      .map(splitRow)
+      .filter((cells) => !cells.every((c) => /^:?-{2,}:?$/.test(c)));
+    const columns = Math.max(...rows.map((r) => r.length));
+    const w = Math.floor(LANDSCAPE_WIDTH / columns);
+    const widths = Array.from({ length: columns }, (_, i) =>
+      i === columns - 1 ? LANDSCAPE_WIDTH - w * (columns - 1) : w,
+    );
+    children.push(
+      new Table({
+        width: { size: LANDSCAPE_WIDTH, type: WidthType.DXA },
+        columnWidths: widths,
+        rows: rows.map(
+          (cells, rowIndex) =>
+            new TableRow({
+              children: widths.map(
+                (cw, i) =>
+                  new TableCell({
+                    borders,
+                    width: { size: cw, type: WidthType.DXA },
+                    margins: { top: 80, bottom: 80, left: 120, right: 120 },
+                    ...(rowIndex === 0
+                      ? { shading: { fill: "EDF1F7", type: ShadingType.CLEAR, color: "auto" } }
+                      : {}),
+                    children: [
+                      new Paragraph({ children: runs(cells[i] ?? "", { bold: rowIndex === 0 }) }),
+                    ],
+                  }),
+              ),
+            }),
+        ),
+      }),
+    );
+  } else {
+    children.push(...markdownToBlocks(markdown));
+  }
+
+  const doc = new Document({
+    styles: {
+      default: { document: { run: { font: "Times New Roman", size: 20 } } },
+      paragraphStyles: [
+        {
+          id: "Heading1",
+          name: "Heading 1",
+          basedOn: "Normal",
+          next: "Normal",
+          quickFormat: true,
+          run: { size: 32, bold: true, font: "Times New Roman" },
+          paragraph: { spacing: { before: 0, after: 200 }, outlineLevel: 0 },
+        },
+      ],
+    },
+    sections: [
+      {
+        properties: {
+          page: {
+            size: { width: 12240, height: 15840, orientation: PageOrientation.LANDSCAPE },
+            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          },
+        },
+        children,
+      },
+    ],
+  });
+
+  const blob = await Packer.toBlob(doc);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${fileName}.docx`;
   document.body.appendChild(a);
   a.click();
   a.remove();
