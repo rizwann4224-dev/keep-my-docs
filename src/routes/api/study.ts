@@ -33,6 +33,7 @@ const Body = z.object({
   userAnswer: z.string().optional(),
   parts: z.array(z.enum(["feedback", "marks", "suggested", "recommendations"])).optional(),
   rigour: z.enum(["moderate", "strict", "hard"]).optional(),
+  followUp: z.string().optional(),
   history: z
     .array(z.object({ question: z.string(), answer: z.string() }))
     .max(40)
@@ -125,6 +126,8 @@ export const Route = createFileRoute("/api/study")({
         const userContent =
           data.mode === "insights"
             ? "Produce the performance diagnostic now."
+            : data.mode === "mark" && data.followUp?.trim()
+            ? `The candidate is discussing your previous marking response.\n\nTHEIR POINT:\n${data.followUp.trim()}\n\nRe-examine that point strictly against the source documents. If they are right, revise the affected feedback, marks or suggested answer and restate the corrected section in full. If they are wrong, explain precisely why, with the source evidence, and keep the original marking. Only address the matter discussed — do not repeat unaffected sections.`
             : data.mode === "mark"
             ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
             : data.mode === "exam"
@@ -134,7 +137,7 @@ export const Route = createFileRoute("/api/study")({
         // Ask mode keeps the thread's earlier turns so follow-ups ("and for the
         // next year?", "rephrase that") resolve against the previous question.
         const priorMessages =
-          data.mode === "ask" || data.mode === "exam"
+          data.mode === "ask" || data.mode === "exam" || data.mode === "mark"
             ? (data.history ?? []).slice(-12).flatMap((turn) => [
                 { role: "user" as const, content: turn.question },
                 { role: "assistant" as const, content: turn.answer.slice(0, 4000) },
