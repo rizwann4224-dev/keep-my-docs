@@ -473,39 +473,52 @@ OUTPUT RULES:
 - Name topics PRECISELY (actual syllabus topic / standard / section), not vague skills.
 - Group attempts by topic. One table row per topic.
 - ALWAYS calculate percentage: (marks awarded ÷ marks available) × 100. Always show percentage.
-- Format all cells CLEANLY without <br> or extra HTML. Use line breaks between bullet points only.
+- NO HTML TAGS. NO <br> TAGS. Use only clean markdown line breaks.
+- Each bullet point MUST be on a SEPARATE LINE. Do not mix bullets into paragraphs.
 - Use prominent bullet markers: ▸ (instead of •) to make each point stand out clearly.
 - ${single ? "Analyze this ONE attempt thoroughly." : `Analyze ALL ${attempts.length} attempts — every attempt belongs to exactly one topic row.`}
 
 OUTPUT FORMAT — output NOTHING except the heading and table. No intro, no closing, no extra sections.
 
-# 📊 Performance Diagnostic
+# Performance Diagnostic
 
 | Topic | Questions solved | Average score % | Weak sub-sections | Root cause of errors | How to overcome for the exam |
 |---|---|---|---|---|---|
 
-TABLE FORMATTING RULES:
+TABLE FORMATTING RULES (CRITICAL - EACH BULLET ON SEPARATE LINE):
 
-**Weak sub-sections** (use ▸ bullet marker):
-▸ Sub-section name (specific, not generic)
+**Weak sub-sections** cell format:
+▸ Sub-section name
+▸ Sub-section name  
 ▸ Sub-section name
 
-**Root cause of errors** (use ▸ bullet marker — focus on WHAT went wrong):
-▸ Specific mistake type: brief 2-3 word summary (e.g., "Wrong fee discount applied")
-▸ Another mistake: brief summary (e.g., "Missing exemption threshold check")
-▸ If many errors, consolidate: "Multiple calculation errors in fee structure"
+**Root cause of errors** cell format (focus on WHAT went wrong):
+▸ Specific mistake type: 2-3 word summary
+▸ Another mistake: 2-3 word summary
+▸ Another mistake: 2-3 word summary
 
-**How to overcome for the exam** (use ▸ bullet marker):
-▸ Specific action (e.g., "Memorize section 45-B fee bands exactly")
-▸ Another action (e.g., "Practice 3 discount scenarios before exam")
+**How to overcome for the exam** cell format:
+▸ Specific action for this topic
+▸ Another action
+▸ Another action
 
-CRITICAL RULES FOR ACCURACY:
-- NO generic language like "improve accuracy" — say EXACTLY what was wrong
-- Quote the exact error if visible (e.g., "Applied 10% instead of 15% discount")
+ABSOLUTE RULES - NO EXCEPTIONS:
+- EVERY bullet point is on a COMPLETELY SEPARATE LINE
+- NO <br> tags anywhere
+- NO combining bullets with paragraph text
+- NO generic language like "improve accuracy"
+- Quote exact errors when visible (e.g., "Applied 10% instead of 15% discount")
 - NEVER use [marks not stated] — always show percentage
 - Order rows WORST-PERFORMING FIRST (lowest % first)
-- Each cell must be TIGHT and SCANNABLE — no paragraphs, no filler
-- NO HTML tags like <br> — use clean line breaks only
+- Each cell content must be SCANNABLE with CLEAR SEPARATION between bullets
+- Example of CORRECT format:
+
+▸ Fee discount calculation
+▸ Exemption threshold application
+▸ Section 45-B reference
+
+- Example of WRONG format (DO NOT DO THIS):
+"Fee discount calculation and exemption threshold application, along with section 45-B reference"
 
 LESSONS THE USER FLAGGED (do not repeat):
 ${lessons}
