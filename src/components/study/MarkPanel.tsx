@@ -74,9 +74,35 @@ export function MarkPanel({
     toast.info("Marking — this keeps running in the background if you switch tabs.");
   }
 
+  function discuss() {
+    if (running) return;
+    const point = followUp.trim();
+    if (point.length < 3) return;
+    const history = turns
+      .filter((t) => t.status === "done" && t.answer)
+      .map((t) => ({ question: t.question, answer: t.answer }));
+    jobs.startRun(
+      key,
+      {
+        subjectId,
+        mode: "mark",
+        question: submitted?.question || turns[0]?.question || question.trim(),
+        userAnswer: (submitted?.userAnswer || userAnswer.trim()) || undefined,
+        parts: submitted?.parts ?? parts,
+        rigour: submitted?.rigour ?? rigour,
+        followUp: point,
+        history,
+      },
+      point,
+    );
+    setFollowUp("");
+    toast.info("Re-checking that point against your sources.");
+  }
+
   function toggle(id: MarkPart) {
     setParts((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
   }
+
 
   return (
     <div className="space-y-6">
