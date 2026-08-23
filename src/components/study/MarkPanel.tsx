@@ -41,6 +41,7 @@ export function MarkPanel({
     rigour: Rigour;
   } | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [followUp, setFollowUp] = useState("");
   const key = `${subjectId}:mark`;
 
   useSyncExternalStore(jobs.subscribe, jobs.getSnapshot, jobs.getSnapshot);
