@@ -219,7 +219,7 @@ export function MarkPanel({
             <ThinkingStatus />
           )}
           
-          {latest.status === "done" && latest.answer && hasMarks && !hasSuggestedAnswer && markData && (
+          {latest.status === "done" && latest.answer && hasMarks && markData && (
             <ChallengeEvaluation
               subjectId={subjectId}
               challenge={{
