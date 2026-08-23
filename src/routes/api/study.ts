@@ -30,7 +30,7 @@ const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flas
 
 const Body = z.object({
   subjectId: z.string().uuid(),
-  mode: z.enum(["ask", "mark", "insights", "exam"]),
+  mode: z.enum(["ask", "mark", "insights", "exam", "challenge"]),
   question: z.string().min(1),
   userAnswer: z.string().optional(),
   parts: z.array(z.enum(["feedback", "marks", "suggested", "recommendations"])).optional(),
@@ -39,8 +39,11 @@ const Body = z.object({
     .array(z.object({ question: z.string(), answer: z.string() }))
     .max(40)
     .optional(),
+  originalEvaluation: z.string().optional(),
+  challengeQuery: z.string().min(1).optional(),
+  originalMarks: z.number().optional(),
+  maxMarks: z.number().optional(),
 });
-
 
 
 export const Route = createFileRoute("/api/study")({
@@ -104,12 +107,20 @@ export const Route = createFileRoute("/api/study")({
             );
           }
           system = insightsSystemPrompt(attempts, lessons);
-        } else {
-          const retrievalQuery = `${data.question}\n${data.userAnswer ?? ""}`;
-          // Marking and exam-setting only need the passages that bear on the question:
-          // a leaner context is what makes the first tokens arrive in seconds.
+             } else {
+          const retrievalQuery =
+            `${data.question}\n${data.userAnswer ?? ""}` +
+            (data.mode === "challenge" ? `\n${data.challengeQuery ?? ""}` : "");
+          // Marking, exam-setting and challenges only need the passages that bear
+          // on the question: a leaner context is what makes the first tokens arrive in seconds.
           const budget =
-            data.mode === "mark" ? 250_000 : data.mode === "exam" ? 300_000 : 350_000;
+            data.mode === "mark"
+              ? 250_000
+              : data.mode === "exam"
+                ? 300_000
+                : data.mode === "challenge"
+                  ? 150_000
+                  : 350_000;
           const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery, budget);
           system =
             data.mode === "mark"
@@ -121,16 +132,19 @@ export const Route = createFileRoute("/api/study")({
                 )
               : data.mode === "exam"
                 ? examSetterSystemPrompt(sources, lessons)
-                : askSystemPrompt(sources, lessons);
+                : data.mode === "challenge"
+                  ? challengeSystemPrompt(sources, lessons, (data.rigour ?? "strict") as Rigour)
+                  : askSystemPrompt(sources, lessons);
         }
-
-        const userContent =
+                const userContent =
           data.mode === "insights"
             ? "Produce the performance diagnostic now."
             : data.mode === "mark"
             ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
             : data.mode === "exam"
             ? `EXAM BRIEF FROM THE CANDIDATE:\n${data.question}`
+            : data.mode === "challenge"
+            ? `ORIGINAL QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ORIGINAL ANSWER:\n${data.userAnswer?.trim() || "(none provided)"}\n\nORIGINAL MARKING OUTPUT GIVEN TO CANDIDATE:\n${data.originalEvaluation?.trim() || "(not provided)"}\n\nORIGINAL MARKS AWARDED: ${data.originalMarks ?? "unknown"} / ${data.maxMarks ?? "unknown"}\n\nCANDIDATE'S CHALLENGE / QUERY:\n${data.challengeQuery?.trim() || ""}`
             : data.question;
 
         // Ask mode keeps the thread's earlier turns so follow-ups ("and for the
