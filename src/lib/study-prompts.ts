@@ -458,12 +458,11 @@ OUTPUT FORMAT — output NOTHING except the heading and the table below. No intr
 |---|---|---|---|---|---|
 
 Row rules:
-- "Weak sub-sections": NUMBER each one inside the cell as "1. … 2. … 3. …" (use "<br>" between them so the table renders). Each entry must name the exact sub-section/standard/section/computation step that failed (e.g. "1. IAS 12 – deferred tax on revaluation surplus"), plus in brackets how many of that topic's attempts it appeared in (e.g. "(3 of 5 attempts)"). Never write vague skills like "presentation" or "time management" unless the marker explicitly said so.
-- "Cause of weakness": NUMBER the causes so they map one-to-one onto the numbered weak sub-sections above (1 ↔ 1, 2 ↔ 2), separated by "<br>". Each cause must state the precise error mechanism quoted or paraphrased from the marker's feedback — misapplied rule, wrong rate/figure used, omitted computation step, missing source citation, non-exam wording, incomplete coverage — and where useful cite the marker's own words in quotes. No generic causes; if the feedback does not explain a failure, write "not stated by marker".
-- "How to overcome for the exam": NUMBER the actions to match the same 1/2/3 order, separated by "<br>" — the specific drill, rule to memorise, or answer structure/wording to use.
+- "Weak sub-sections": list the specific sub-sections that went wrong, separated by semicolons (e.g. "Threats to independence; Safeguards wording").
+- "Cause of weakness": WHY it went wrong — misapplied rule, missing computation step, no source citation, poor exam language, incomplete coverage. Be concrete and tie it to what the marker said.
+- "How to overcome for the exam": the specific corrective action for that topic (what to drill, what structure/wording to use, what rule to memorise) drawn from the solved-question analysis.
 - Order rows worst-performing first.
-- Keep each cell tight — numbered points, one or two lines each, no paragraphs.
-
+- Keep each cell tight — full sentences allowed but no paragraphs.
 
 LESSONS THE USER ALREADY FLAGGED:
 ${lessons}

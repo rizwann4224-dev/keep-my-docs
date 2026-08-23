@@ -9,8 +9,6 @@ export type StudyRequest = {
   parts?: MarkPart[] | undefined;
   /** Marking severity for mark mode. */
   rigour?: Rigour | undefined;
-  /** A discussion point about the previous marking response. */
-  followUp?: string | undefined;
   /** Prior turns in this Ask thread, so follow-up questions keep their context. */
   history?: { question: string; answer: string }[] | undefined;
 };
