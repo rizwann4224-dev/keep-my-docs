@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import * as jobs from "@/lib/study-jobs";
+import type { Rigour } from "@/lib/study-prompts";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
@@ -34,7 +35,9 @@ export function ChallengeEvaluation({
   const [showChallenge, setShowChallenge] = useState(false);
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState<string | null>(null);
-  const challengeKey = `${subjectId}:challenge:${Date.now()}`;
+  // Stable per mount — computing this inline with Date.now() regenerated the
+  // key on every render, so a running job could never be found after it started.
+  const [challengeKey] = useState(() => `${subjectId}:challenge:${crypto.randomUUID()}`);
 
   const turns = jobs.getTurns(challengeKey);
   const latest = turns[turns.length - 1];
@@ -58,7 +61,7 @@ export function ChallengeEvaluation({
         challengeQuery: query.trim(),
         originalMarks: challenge.originalMarks,
         maxMarks: challenge.maxMarks,
-        rigour: challenge.rigour as any,
+               rigour: challenge.rigour as Rigour,
       },
       "Challenge Evaluation",
     );
@@ -128,9 +131,15 @@ export function ChallengeEvaluation({
             </div>
           )}
 
-          {latest.answer ? (
+                   {latest.answer ? (
             <>
-              <Markdown>{latest.answer}</Markdown>
+              {latest.answer.trim().startsWith("⚠️") ? (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                  {latest.answer.trim()}
+                </div>
+              ) : (
+                <Markdown>{latest.answer}</Markdown>
+              )}
               <div className="mt-4 flex gap-2 border-t border-blue-200 pt-4">
                 <Button
                   size="sm"
