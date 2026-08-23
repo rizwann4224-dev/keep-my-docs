@@ -2,8 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
+  import {
   askSystemPrompt,
   buildLessonsBlock,
+  challengeSystemPrompt,
   examSetterSystemPrompt,
   insightsSystemPrompt,
   buildRelevantSourceBlock,
