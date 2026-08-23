@@ -3,14 +3,19 @@ import type { MarkPart, Rigour } from "@/lib/study-prompts";
 
 export type StudyRequest = {
   subjectId: string;
-  mode: "ask" | "mark" | "insights" | "exam";
+  mode: "ask" | "mark" | "insights" | "exam" | "challenge";
   question: string;
   userAnswer?: string | undefined;
   parts?: MarkPart[] | undefined;
-  /** Marking severity for mark mode. */
+  /** Marking severity for mark/challenge mode. */
   rigour?: Rigour | undefined;
   /** Prior turns in this Ask thread, so follow-up questions keep their context. */
   history?: { question: string; answer: string }[] | undefined;
+  /** Challenge mode only. */
+  originalEvaluation?: string | undefined;
+  challengeQuery?: string | undefined;
+  originalMarks?: number | undefined;
+  maxMarks?: number | undefined;
 };
 
 
