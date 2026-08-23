@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
-  import {
   askSystemPrompt,
   buildLessonsBlock,
   challengeSystemPrompt,
@@ -44,6 +43,7 @@ const Body = z.object({
   originalMarks: z.number().optional(),
   maxMarks: z.number().optional(),
 });
+
 
 
 export const Route = createFileRoute("/api/study")({
@@ -107,7 +107,7 @@ export const Route = createFileRoute("/api/study")({
             );
           }
           system = insightsSystemPrompt(attempts, lessons);
-             } else {
+        } else {
           const retrievalQuery =
             `${data.question}\n${data.userAnswer ?? ""}` +
             (data.mode === "challenge" ? `\n${data.challengeQuery ?? ""}` : "");
@@ -136,7 +136,8 @@ export const Route = createFileRoute("/api/study")({
                   ? challengeSystemPrompt(sources, lessons, (data.rigour ?? "strict") as Rigour)
                   : askSystemPrompt(sources, lessons);
         }
-                const userContent =
+
+        const userContent =
           data.mode === "insights"
             ? "Produce the performance diagnostic now."
             : data.mode === "mark"
