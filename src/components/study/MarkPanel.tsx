@@ -182,16 +182,21 @@ export function MarkPanel({
         </Button>
       </div>
 
-      {latest && (
-        <div className="rounded-xl border border-border bg-card p-6">
-          {latest.answer ? (
-            <Markdown>{latest.answer}</Markdown>
-          ) : latest.status === "error" ? (
-            <p className="text-sm text-destructive">{latest.error ?? "Something went wrong"}</p>
+      {turns.map((turn, i) => (
+        <div key={turn.id} className="rounded-xl border border-border bg-card p-6">
+          {i > 0 && (
+            <p className="mb-3 border-b border-border pb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Discussion: {turn.question}
+            </p>
+          )}
+          {turn.answer ? (
+            <Markdown>{turn.answer}</Markdown>
+          ) : turn.status === "error" ? (
+            <p className="text-sm text-destructive">{turn.error ?? "Something went wrong"}</p>
           ) : (
             <ThinkingStatus />
           )}
-          {latest.status === "done" && latest.answer && (
+          {turn === latest && turn.status === "done" && turn.answer && (
             <div className="mt-4 flex justify-end border-t border-border pt-4">
               <Button
                 variant="outline"
@@ -202,7 +207,7 @@ export function MarkPanel({
                   try {
                     await exportMarkingToWord({
                       notebook: subjectName,
-                      question: submitted?.question || latest.question,
+                      question: submitted?.question || turns[0]?.question || turn.question,
                       userAnswer: submitted?.userAnswer,
                       requested: (submitted?.parts ?? parts).map(
                         (id) => OPTIONS.find((o) => o.id === id)?.label ?? id,
@@ -210,9 +215,13 @@ export function MarkPanel({
                       rigour:
                         RIGOURS.find((r) => r.id === (submitted?.rigour ?? rigour))?.label ??
                         "Strict",
-                      response: latest.answer,
+                      response: turns
+                        .filter((t) => t.status === "done" && t.answer)
+                        .map((t, idx) =>
+                          idx === 0 ? t.answer : `\n\n## Discussion: ${t.question}\n\n${t.answer}`,
+                        )
+                        .join(""),
                     });
-
                   } catch {
                     toast.error("Could not build the Word file");
                   } finally {
@@ -224,9 +233,35 @@ export function MarkPanel({
               </Button>
             </div>
           )}
-          {latest.status === "done" && <LessonCapture subjectId={subjectId} />}
+          {turn === latest && turn.status === "done" && <LessonCapture subjectId={subjectId} />}
+        </div>
+      ))}
+
+      {latest && latest.status === "done" && latest.answer && (
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h2 className="text-base font-semibold text-foreground">Discuss this marking</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Disagree with a mark or a point? Explain it — the examiner re-checks it against the
+            sources and revises only what the discussion affects.
+          </p>
+          <Textarea
+            value={followUp}
+            onChange={(e) => setFollowUp(e.target.value)}
+            placeholder="e.g. In part (ii) I did state the self-review threat — please re-check the marks."
+            className="mt-3 min-h-28 resize-y"
+          />
+          <div className="mt-3 flex justify-end">
+            <Button
+              variant="secondary"
+              disabled={running || followUp.trim().length < 3}
+              onClick={discuss}
+            >
+              {running ? "Working…" : "Send discussion point"}
+            </Button>
+          </div>
         </div>
       )}
+
     </div>
   );
 }
