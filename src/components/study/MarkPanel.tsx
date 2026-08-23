@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
 import { LessonCapture } from "@/components/study/LessonCapture";
 import { ThinkingStatus } from "@/components/study/ThinkingStatus";
+import { ChallengeEvaluation, type ChallengeState } from "@/components/study/ChallengeEvaluation";
 import { exportMarkingToWord } from "@/lib/export-docx";
 
 const OPTIONS: { id: MarkPart; label: string; hint: string }[] = [
@@ -41,6 +42,10 @@ export function MarkPanel({
     rigour: Rigour;
   } | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [markData, setMarkData] = useState<{
+    marks: number;
+    maxMarks: number;
+  } | null>(null);
   const key = `${subjectId}:mark`;
 
   useSyncExternalStore(jobs.subscribe, jobs.getSnapshot, jobs.getSnapshot);
@@ -49,6 +54,8 @@ export function MarkPanel({
   const running = jobs.isRunning(key);
 
   const needsAnswer = parts.includes("feedback") || parts.includes("marks");
+  const hasMarks = parts.includes("marks");
+  const hasSuggestedAnswer = parts.includes("suggested");
 
   function run() {
     if (running) return;
@@ -75,6 +82,26 @@ export function MarkPanel({
 
   function toggle(id: MarkPart) {
     setParts((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
+  }
+
+  // Extract marks from response (simple regex pattern)
+  function extractMarksFromResponse(response: string): { marks: number; maxMarks: number } | null {
+    // Look for patterns like "Marks awarded: 18/20" or "18 / 20"
+    const match = response.match(/Marks awarded:\s*(\d+)\s*\/\s*(\d+)|(\d+)\s*\/\s*(\d+)\s*marks/i);
+    if (match) {
+      const marks = match[1] ? parseInt(match[1]) : parseInt(match[3]);
+      const maxMarks = match[2] ? parseInt(match[2]) : parseInt(match[4]);
+      return { marks, maxMarks };
+    }
+    return null;
+  }
+
+  // Update markData when response arrives
+  if (latest?.status === "done" && latest.answer && hasMarks && !markData) {
+    const extracted = extractMarksFromResponse(latest.answer);
+    if (extracted) {
+      setMarkData(extracted);
+    }
   }
 
   return (
@@ -191,6 +218,21 @@ export function MarkPanel({
           ) : (
             <ThinkingStatus />
           )}
+          
+          {latest.status === "done" && latest.answer && hasMarks && !hasSuggestedAnswer && markData && (
+            <ChallengeEvaluation
+              subjectId={subjectId}
+              challenge={{
+                originalMarks: markData.marks,
+                maxMarks: markData.maxMarks,
+                originalEvaluation: latest.answer,
+                originalQuestion: submitted?.question || question,
+                originalAnswer: submitted?.userAnswer || userAnswer,
+                rigour: submitted?.rigour || rigour,
+              }}
+            />
+          )}
+          
           {latest.status === "done" && latest.answer && (
             <div className="mt-4 flex justify-end border-t border-border pt-4">
               <Button
