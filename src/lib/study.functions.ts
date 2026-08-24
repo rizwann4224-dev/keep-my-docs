@@ -5,6 +5,7 @@ import {
   askSystemPrompt,
   buildLessonsBlock,
   buildSourceBlock,
+  buildRelevantSourceBlock,
   markSystemPrompt,
   type MarkPart,
 } from "@/lib/study-prompts";
@@ -55,7 +56,13 @@ export const runStudyQuery = createServerFn({ method: "POST" })
         .order("created_at", { ascending: true }),
     ]);
 
-    const sources = buildSourceBlock(docs ?? []);
+    // For "ask" mode: use relevant source extraction (smarter filtering)
+    // For "mark" mode: use comprehensive sources (need full context for marking)
+    const sources =
+      data.mode === "ask"
+        ? buildRelevantSourceBlock(docs ?? [], data.question)
+        : buildSourceBlock(docs ?? []);
+    
     const lessons = buildLessonsBlock(notes ?? []);
     const system =
       data.mode === "mark"
@@ -68,11 +75,13 @@ export const runStudyQuery = createServerFn({ method: "POST" })
         : data.question;
 
     const content = await callGateway(apiKey, {
-      model: "google/gemini-2.5-pro",
+      model: "google/gemini-2.5-pro", // Using the more powerful model for better reasoning
       messages: [
         { role: "system", content: system },
         { role: "user", content: userContent },
       ],
+      temperature: 0.3, // Lower temperature for more precise, consistent answers
+      top_p: 0.9,
     });
     if (!content) throw new Error("The AI returned an empty response.");
 
@@ -142,6 +151,7 @@ export const transcribePages = createServerFn({ method: "POST" })
                 ],
               },
             ],
+            temperature: 0.1, // Very low temperature for consistency
           });
 
           if (content && content.trim().length > 0) {
