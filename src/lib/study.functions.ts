@@ -98,23 +98,93 @@ export const transcribePages = createServerFn({ method: "POST" })
     const apiKey = process.env["LOVABLE_API_KEY"];
     if (!apiKey) throw new Error("AI is not configured yet.");
 
-    const content = await callGateway(apiKey, {
-      model: "google/gemini-2.5-flash",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Transcribe every page image into plain text, preserving headings, numbering and tables (as markdown tables). Output only the transcription, no commentary.",
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Transcribe these document pages in order." },
-            ...data.images.map((url) => ({ type: "image_url", image_url: { url } })),
-          ],
-        },
-      ],
-    });
+    const MAX_BATCH_SIZE = 5; // Process images in smaller batches for better reliability
+    const batches: string[][] = [];
+    
+    for (let i = 0; i < data.images.length; i += MAX_BATCH_SIZE) {
+      batches.push(data.images.slice(i, i + MAX_BATCH_SIZE));
+    }
 
-    return { text: content };
+    const results: string[] = [];
+    const MAX_RETRIES = 2;
+
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      let batchText = "";
+      let lastError: Error | null = null;
+
+      // Retry logic for each batch
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const content = await callGateway(apiKey, {
+            model: "google/gemini-2.5-flash",
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Transcribe every page image into plain text, preserving headings, numbering, tables (as markdown), formatting, and structure. " +
+                  "If text is blurry, handwritten, faded, or partially visible, do your best to interpret and transcribe it. " +
+                  "Preserve line breaks and spacing that indicate structure. " +
+                  "If absolutely no text can be detected on a page, write [Page {n}: No readable text detected]. " +
+                  "Output ONLY the transcription with NO additional commentary, explanations, or disclaimers.",
+              },
+              {
+                role: "user",
+                content: [
+                  { 
+                    type: "text", 
+                    text: `Transcribe these ${batch.length} document page(s) in order (Batch ${batchIndex + 1}/${batches.length})${attempt > 0 ? ` - Attempt ${attempt + 1}` : ""}.` 
+                  },
+                  ...batch.map((url) => ({ 
+                    type: "image_url", 
+                    image_url: { url } 
+                  })),
+                ],
+              },
+            ],
+          });
+
+          if (content && content.trim().length > 0) {
+            batchText = content;
+            break; // Success, exit retry loop
+          } else if (attempt < MAX_RETRIES) {
+            // Empty response, retry
+            lastError = new Error("Empty response from OCR model");
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); // Exponential backoff
+          } else {
+            batchText = `[Batch ${batchIndex + 1}: No text extracted from any pages]`;
+          }
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          
+          if (attempt < MAX_RETRIES) {
+            // Retry on error
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); // Exponential backoff
+          } else {
+            // All retries exhausted
+            batchText = `[Batch ${batchIndex + 1}: Transcription failed - ${lastError.message}]`;
+          }
+        }
+      }
+
+      if (batchText) {
+        results.push(batchText);
+      }
+    }
+
+    const finalText = results
+      .filter(r => r && r.trim().length > 0)
+      .join("\n\n");
+    
+    if (finalText.trim().length === 0 || finalText.includes("No text extracted") && results.length === batches.length) {
+      throw new Error(
+        "Unable to extract text from the document. This may happen if:\n" +
+        "1. The image quality is too low or too dark\n" +
+        "2. The document is blank or contains only images\n" +
+        "3. The text is in an unsupported language\n\n" +
+        "Try re-uploading with a clearer, higher-resolution scan."
+      );
+    }
+
+    return { text: finalText };
   });
