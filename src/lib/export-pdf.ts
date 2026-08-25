@@ -84,7 +84,8 @@ export function exportAskToPdf(data: AskExport) {
   ) => {
     const size = opts.size ?? 11;
     const indent = opts.indent ?? 0;
-    doc.setFont("times", opts.style ?? "normal");
+    // Switch to helvetica to avoid font fallback/encoding issues in some browsers
+    doc.setFont("helvetica", opts.style ?? "normal");
     doc.setFontSize(size);
     const [r, g, b] = opts.color ?? INK;
     doc.setTextColor(r, g, b);
@@ -107,7 +108,8 @@ export function exportAskToPdf(data: AskExport) {
     const lh = size * 1.3;
 
     rows.forEach((cells, rowIndex) => {
-      doc.setFont("times", rowIndex === 0 ? "bold" : "normal");
+      // Use helvetica here as well to keep widths consistent
+      doc.setFont("helvetica", rowIndex === 0 ? "bold" : "normal");
       doc.setFontSize(size);
       const wrapped = Array.from({ length: columns }, (_, i) =>
         doc.splitTextToSize(cells[i] ?? "", colW - 12) as string[],
@@ -138,15 +140,16 @@ export function exportAskToPdf(data: AskExport) {
   // Cover band
   doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
   doc.rect(0, 0, PAGE_W, 92, "F");
-  doc.setFont("times", "bold");
+  // Use helvetica for heading text to avoid times rendering issues
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
   doc.setTextColor(255, 255, 255);
   doc.text(data.title ?? "Ask session", MARGIN, 44);
-  doc.setFont("times", "italic");
+  doc.setFont("helvetica", "italic");
   doc.setFontSize(11);
   doc.setTextColor(214, 222, 238);
   doc.text(data.notebook, MARGIN, 64);
-  doc.setFont("times", "normal");
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.text(
     new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
@@ -262,7 +265,7 @@ export function exportInsightsToPdf(markdown: string, fallbackName = "performanc
     }
   };
 
-  doc.setFont("times", "bold");
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
   doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
   doc.text("Performance Overview", MARGIN, y + 6);
@@ -278,7 +281,7 @@ export function exportInsightsToPdf(markdown: string, fallbackName = "performanc
   }
 
   if (rows.length === 0) {
-    doc.setFont("times", "normal");
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     doc.setTextColor(INK[0], INK[1], INK[2]);
     for (const line of doc.splitTextToSize(plain(markdown), width) as string[]) {
@@ -296,7 +299,7 @@ export function exportInsightsToPdf(markdown: string, fallbackName = "performanc
   const lh = size * 1.3;
 
   rows.forEach((cells, rowIndex) => {
-    doc.setFont("times", rowIndex === 0 ? "bold" : "normal");
+    doc.setFont("helvetica", rowIndex === 0 ? "bold" : "normal");
     doc.setFontSize(size);
     const wrapped = Array.from(
       { length: columns },
