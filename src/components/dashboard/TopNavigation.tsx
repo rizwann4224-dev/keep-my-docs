@@ -3,9 +3,9 @@ import { colors, spacing, borderRadius, shadows, typography } from './theme';
 
 interface TopNavigationProps {
   userEmail?: string;
-  onSettings?: () => void;
-  onSignOut?: () => void;
-  onICAPClick?: () => void;
+  onSettings?: (() => void) | undefined;
+  onSignOut?: (() => void) | undefined;
+  onICAPClick?: (() => void) | undefined;
 }
 
 export function TopNavigation({

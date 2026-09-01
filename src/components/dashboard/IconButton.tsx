@@ -2,7 +2,8 @@ import { forwardRef, ReactNode } from 'react';
 
 interface IconButtonProps {
   icon: ReactNode;
-  onClick?: () => void;
+  onClick?: (() => void) | undefined;
+  style?: React.CSSProperties | undefined;
   variant?: 'primary' | 'secondary' | 'ghost';
   size?: 'sm' | 'md' | 'lg';
   className?: string;
@@ -27,6 +28,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
     {
       icon,
       onClick,
+      style,
       variant = 'ghost',
       size = 'md',
       className = '',
@@ -39,6 +41,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       <button
         ref={ref}
         onClick={onClick}
+        style={style}
         disabled={disabled}
         aria-label={ariaLabel}
         className={`
