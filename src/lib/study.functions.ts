@@ -118,7 +118,7 @@ export const transcribePages = createServerFn({ method: "POST" })
     const MAX_RETRIES = 2;
 
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
+      const batch = batches[batchIndex] ?? [];
       let batchText = "";
       let lastError: Error | null = null;
 

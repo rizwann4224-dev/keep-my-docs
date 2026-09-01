@@ -127,13 +127,7 @@ export function StudyDeskDashboard({
         <div
           className="grid gap-6"
           style={{
-            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-            '@media (max-width: 768px)': {
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            },
-            '@media (max-width: 480px)': {
-              gridTemplateColumns: '1fr',
-            },
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
           }}
         >
           {/* New Notebook Card */}

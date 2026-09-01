@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IcapRouteImport } from './routes/icap'
 import { Route as ApiStudyRouteImport } from './routes/api/study'
+import { Route as StudyDeskIndexRouteImport } from './routes/study-desk.index'
 import { Route as ApiPublicIcapRouteImport } from './routes/api/public/icap'
 
 const IndexRoute = IndexRouteImport.update({
@@ -35,6 +36,11 @@ const ApiStudyRoute = ApiStudyRouteImport.update({
   path: '/api/study',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StudyDeskIndexRoute = StudyDeskIndexRouteImport.update({
+  id: '/study-desk/',
+  path: '/study-desk/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicIcapRoute = ApiPublicIcapRouteImport.update({
   id: '/api/public/icap',
   path: '/api/public/icap',
@@ -46,6 +52,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/icap': typeof IcapRoute
   '/api/study': typeof ApiStudyRoute
+  '/study-desk/': typeof StudyDeskIndexRoute
   '/api/public/icap': typeof ApiPublicIcapRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/icap': typeof IcapRoute
   '/api/study': typeof ApiStudyRoute
+  '/study-desk': typeof StudyDeskIndexRoute
   '/api/public/icap': typeof ApiPublicIcapRoute
 }
 export interface FileRoutesById {
@@ -61,14 +69,24 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/icap': typeof IcapRoute
   '/api/study': typeof ApiStudyRoute
+  '/study-desk/': typeof StudyDeskIndexRoute
   '/api/public/icap': typeof ApiPublicIcapRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/icap' | '/api/study' | '/api/public/icap'
+  fullPaths:
+    '/' | '/auth' | '/icap' | '/api/study' | '/study-desk/' | '/api/public/icap'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/icap' | '/api/study' | '/api/public/icap'
-  id: '__root__' | '/' | '/auth' | '/icap' | '/api/study' | '/api/public/icap'
+  to:
+    '/' | '/auth' | '/icap' | '/api/study' | '/study-desk' | '/api/public/icap'
+  id:
+    | '__root__'
+    | '/'
+    | '/auth'
+    | '/icap'
+    | '/api/study'
+    | '/study-desk/'
+    | '/api/public/icap'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,6 +94,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   IcapRoute: typeof IcapRoute
   ApiStudyRoute: typeof ApiStudyRoute
+  StudyDeskIndexRoute: typeof StudyDeskIndexRoute
   ApiPublicIcapRoute: typeof ApiPublicIcapRoute
 }
 
@@ -109,6 +128,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiStudyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/study-desk/': {
+      id: '/study-desk/'
+      path: '/study-desk'
+      fullPath: '/study-desk/'
+      preLoaderRoute: typeof StudyDeskIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/icap': {
       id: '/api/public/icap'
       path: '/api/public/icap'
@@ -124,6 +150,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   IcapRoute: IcapRoute,
   ApiStudyRoute: ApiStudyRoute,
+  StudyDeskIndexRoute: StudyDeskIndexRoute,
   ApiPublicIcapRoute: ApiPublicIcapRoute,
 }
 export const routeTree = rootRouteImport

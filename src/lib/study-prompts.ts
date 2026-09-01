@@ -67,8 +67,26 @@ ${usable
   const bigrams: string[] = [];
   for (let i = 0; i < base.length - 1; i++) bigrams.push(`${base[i]} ${base[i + 1]}`);
 
+  // Question anchors ("Q.3", "Question 4", "Q3(b)") — in past papers the question,
+  // its suggested answer and the examiner's comments all repeat this label many
+  // pages apart, so it is the strongest link between them.
+  const anchors = Array.from(
+    new Set(
+      (lowerQuery.match(/\b(?:q(?:uestion)?\.?\s?\d{1,2})\b/g) ?? []).map((a) =>
+        a.replace(/\s+|\./g, ""),
+      ),
+    ),
+  );
+  const anchorRe = anchors.length
+    ? new RegExp(`\\b(?:q(?:uestion)?)\\.?\\s?(${anchors.map((a) => a.replace(/\D/g, "")).join("|")})\\b`, "i")
+    : null;
+
+  // Passages that hold the marking side of a past paper.
+  const ANSWER_MARKER =
+    /\b(suggested answer|model answer|solution|answer\s*[:\-]|marking (?:scheme|guide|key)|mark plan|examiner'?s? (?:comments?|report|observations?)|marks? allocated|award(?:ed)? marks?)\b/i;
+
   const CHUNK = 2_500;
-  type Chunk = { doc: string; idx: number; text: string; score: number };
+  type Chunk = { doc: string; idx: number; text: string; score: number; marker: boolean };
   const chunks: Chunk[] = [];
 
   const count = (haystack: string, needle: string) => {
@@ -101,7 +119,12 @@ ${usable
       if (/\d+(\.\d+)?\s*%/.test(slice)) score += 6;
       if (/\b(rate|threshold|limit|section|para|schedule|table|definition|means)\b/i.test(slice))
         score += 3;
-      chunks.push({ doc: doc.name, idx: i / CHUNK, text: slice, score });
+      const marker = ANSWER_MARKER.test(slice);
+      // A "Suggested answer"/"Examiner's comments" block that also mentions the
+      // question's own wording or its number is almost certainly the missing half.
+      if (marker && (distinct >= 2 || (anchorRe && anchorRe.test(slice)))) score += 40;
+      if (anchorRe && anchorRe.test(slice)) score += 30;
+      chunks.push({ doc: doc.name, idx: i / CHUNK, text: slice, score, marker });
     }
   }
 
@@ -120,6 +143,30 @@ ${usable
     return true;
   };
 
+  /** Neighbours plus the answer/examiner blocks that follow the same question later on. */
+  const takeCompanions = (chunk: Chunk) => {
+    let added = 0;
+    for (const d of [-2, -1, 1, 2]) {
+      if (take(byKey.get(`${chunk.doc}#${chunk.idx + d}`))) added += CHUNK;
+    }
+    // Walk forward through the same document: a question on page 1 has its answer
+    // on page 3 and the examiner's comments on page 5 — pull those in even though
+    // they are far away, provided they look like answer/marking material.
+    for (let d = 3; d <= 16; d++) {
+      const next = byKey.get(`${chunk.doc}#${chunk.idx + d}`);
+      if (!next) break;
+      const linked =
+        next.marker || (anchorRe ? anchorRe.test(next.text) : false) || next.score >= chunk.score * 0.4;
+      if (!linked) continue;
+      if (take(next)) {
+        added += CHUNK;
+        // Keep the block intact so the answer is never cut mid-way.
+        if (take(byKey.get(`${next.doc}#${next.idx + 1}`))) added += CHUNK;
+      }
+    }
+    return added;
+  };
+
   // Opening of every document first: definitions, contents and headings give context.
   for (const doc of usable) take(byKey.get(`${doc.name}#0`));
 
@@ -132,8 +179,7 @@ ${usable
     for (const chunk of ranked.filter((c) => c.doc === doc.name)) {
       if (docUsed >= perDocQuota) break;
       if (take(chunk)) docUsed += chunk.text.length;
-      if (take(byKey.get(`${chunk.doc}#${chunk.idx - 1}`))) docUsed += CHUNK;
-      if (take(byKey.get(`${chunk.doc}#${chunk.idx + 1}`))) docUsed += CHUNK;
+      docUsed += takeCompanions(chunk);
     }
   }
 
@@ -142,8 +188,7 @@ ${usable
   for (const chunk of ranked) {
     if (used >= budget) break;
     take(chunk);
-    take(byKey.get(`${chunk.doc}#${chunk.idx - 1}`));
-    take(byKey.get(`${chunk.doc}#${chunk.idx + 1}`));
+    takeCompanions(chunk);
   }
 
   if (picked.size === 0) return inventory + buildSourceBlock(usable);
@@ -163,6 +208,7 @@ ${c.text}
 }
 
 
+
 export function buildLessonsBlock(notes: { content: string }[]): string {
   if (notes.length === 0) return "None recorded yet.";
   return notes.map((n, i) => `${i + 1}. ${n.content}`).join("\n");
@@ -177,8 +223,12 @@ GROUNDING RULE:
 
 SEARCH DISCIPLINE (do this before writing anything):
 - Scan EVERY source document end to end for the exact term asked about, plus its synonyms, abbreviations, table headings and any figure that could be the answer. Sources are delimited by page markers and extract numbers.
+- Material for ONE question is normally SPLIT ACROSS DISTANT PAGES of the same document: the question/scenario in one place, the suggested answer many pages later, the marking guide and the examiner's comments later still. Finding the question is not the end of the search — always continue through the later extracts of that same document for "Suggested answer", "Solution", "Marking scheme/guide", "Examiner's comments/report" and the same question number (Q.3, Question 3(b)), and combine them.
+- Non-consecutive extract numbers mean pages were skipped, not that content is missing. Never conclude something is absent because it is not adjacent to the question.
 - Only after that scan do you decide whether something is present. Never say it is missing because it was not in the first source.
+- Before writing "Not found in your sources", silently re-run the search using: the question number, 2-3 synonyms, the key noun alone, any figure in the question, and the document's answer/comment headings. Say "not found" ONLY if all of those fail, and then name exactly what you searched for.
 - Verify each figure you output by re-reading the exact line it came from; if the line is ambiguous, quote it verbatim next to the figure.
+
 
 PRECISION RULES:
 - Quote figures, rates, dates, section/standard numbers EXACTLY as written in the source. Never round, paraphrase or "approximately" a number.
@@ -188,6 +238,14 @@ PRECISION RULES:
 - Tables are flattened into lines: match a figure to its row label AND its column heading before using it. If a value could belong to more than one row/column, quote the row verbatim instead of a bare number.
 - Watch qualifiers attached to a figure: per annum vs per month, gross vs net, inclusive of tax, "whichever is higher/lower", currency and unit (Rs/000, million). Carry the qualifier into the answer.
 - Where a rate depends on a band, slab or condition, state the condition that applies and the exact band boundaries as written.
+
+WHEN YOU MUST WRITE YOUR OWN ANSWER (no official answer exists in the sources):
+- Build it only from source-anchored building blocks: for every point, first locate the governing rule/section/standard in the extracts and note its exact wording, then write the point. A point with no locatable source basis is either dropped or clearly labelled [External reference].
+- Follow the fixed chain for each point: RULE (with exact reference) → APPLICATION to the scenario facts as stated → CONCLUSION. Never state a conclusion without the rule, and never state a rule without applying it.
+- Recompute every calculation twice and show the workings line by line (figure, source of the figure, operation). If the two computations disagree, redo them before printing.
+- Use only the facts given in the question — never assume dates, amounts, entity types, materiality or intentions that are not stated. Where a fact is missing, state the assumption explicitly as "Assumption:" and mark it as such.
+- Prefer the source's own terminology and phrasing over paraphrase; paraphrase is where errors enter.
+- Silent verification pass before output: re-read your answer against the extracts, and delete or correct any sentence you cannot trace to a specific source line or a labelled external reference.
 
 FINAL SELF-CHECK (silent — never print this checklist):
 1. Does the first line literally answer what was asked (the figure/name/date/yes-no)?
