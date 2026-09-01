@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { StudyDeskDashboard } from '~/components/dashboard/StudyDeskDashboard';
 
-export const Route = createFileRoute('/study-desk')({ 
+export const Route = createFileRoute('/study-desk/')({ 
   component: StudyDeskPage,
 });
 
