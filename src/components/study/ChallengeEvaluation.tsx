@@ -5,7 +5,7 @@ import type { Rigour } from "@/lib/study-prompts";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
-import { ThinkingStatus } from "@/components/study/ThinkingStatus";
+import { ThinkingStatus, GENERIC_STEPS } from "@/components/study/ThinkingStatus";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,7 +61,7 @@ export function ChallengeEvaluation({
         challengeQuery: query.trim(),
         originalMarks: challenge.originalMarks,
         maxMarks: challenge.maxMarks,
-               rigour: challenge.rigour as Rigour,
+        rigour: challenge.rigour as Rigour,
       },
       "Challenge Evaluation",
     );
@@ -71,10 +71,7 @@ export function ChallengeEvaluation({
   if (!showChallenge) {
     return (
       <div className="mt-6 border-t border-border pt-4">
-        <Button
-          variant="outline"
-          onClick={() => setShowChallenge(true)}
-        >
+        <Button variant="outline" onClick={() => setShowChallenge(true)}>
           ❓ Question This Evaluation
         </Button>
       </div>
@@ -131,7 +128,7 @@ export function ChallengeEvaluation({
             </div>
           )}
 
-                   {latest.answer ? (
+          {latest.answer ? (
             <>
               {latest.answer.trim().startsWith("⚠️") ? (
                 <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
@@ -174,7 +171,12 @@ export function ChallengeEvaluation({
               </div>
             </>
           ) : (
-            <ThinkingStatus />
+            <ThinkingStatus
+              title="Reviewing your objection…"
+              subtitle="This may take a few seconds"
+              meta="Re-checking the marking scheme…"
+              steps={GENERIC_STEPS}
+            />
           )}
         </div>
       )}

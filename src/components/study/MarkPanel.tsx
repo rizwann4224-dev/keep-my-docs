@@ -251,7 +251,7 @@ export function MarkPanel({ subjectId, subjectName }: { subjectId: string; subje
         <ThinkingStatus
           title="Marking your answer…"
           subtitle="This may take a few seconds"
-          kicker="Evaluating your answer…"
+          meta="Evaluating your answer…"
           steps={MARK_STEPS}
         />
       )}

@@ -9,6 +9,13 @@ const DEFAULT_STEPS = [
   "Finalizing answer",
 ];
 
+/** Shared step list for smaller, non-Ask/Mark runs (challenge review, insights). */
+export const GENERIC_STEPS = [
+  "Reading your sources",
+  "Cross-checking the details",
+  "Putting the response together",
+];
+
 type StepStatus = "done" | "active" | "pending";
 
 /**
@@ -21,12 +28,12 @@ type StepStatus = "done" | "active" | "pending";
 export function ThinkingStatus({
   title = "Generating answer…",
   subtitle = "This may take a few seconds",
-  kicker = "Thinking with your sources…",
+  meta = "Thinking with your sources…",
   steps = DEFAULT_STEPS,
 }: {
   title?: string;
   subtitle?: string;
-  kicker?: string;
+  meta?: string;
   steps?: string[];
 }) {
   const [progress, setProgress] = useState(0);
@@ -43,7 +50,7 @@ export function ThinkingStatus({
       setProgress(Math.min(0.92, eased));
     }, 80);
     return () => clearInterval(timer);
-  }, []);
+  }, [steps.length]);
 
   const stepCount = steps.length;
   const activeIndex = Math.min(stepCount - 1, Math.floor(progress * stepCount));
@@ -67,7 +74,7 @@ export function ThinkingStatus({
           </div>
         </div>
         <div className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
-          <span>{kicker}</span>
+          <span>{meta}</span>
           <span className="flex gap-1">
             <span className="h-1 w-1 animate-bounce rounded-full bg-primary [animation-delay:-0.3s]" />
             <span className="h-1 w-1 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" />

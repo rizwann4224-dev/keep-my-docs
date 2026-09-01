@@ -5,10 +5,9 @@ import * as jobs from "@/lib/study-jobs";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/study/Markdown";
-import { ThinkingStatus } from "@/components/study/ThinkingStatus";
+import { ThinkingStatus, GENERIC_STEPS } from "@/components/study/ThinkingStatus";
 import { exportInsightsToPdf } from "@/lib/export-pdf";
 import { exportInsightsToWord } from "@/lib/export-docx";
-
 
 export function PerformancePanel({ subjectId }: { subjectId: string }) {
   const key = `${subjectId}:insights`;
@@ -61,16 +60,10 @@ export function PerformancePanel({ subjectId }: { subjectId: string }) {
           </Button>
           {latest?.answer && !running && (
             <>
-              <Button
-                variant="outline"
-                onClick={() => exportInsightsToPdf(latest.answer)}
-              >
+              <Button variant="outline" onClick={() => exportInsightsToPdf(latest.answer)}>
                 Export PDF
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => void exportInsightsToWord(latest.answer)}
-              >
+              <Button variant="outline" onClick={() => void exportInsightsToWord(latest.answer)}>
                 Export Word
               </Button>
             </>
@@ -81,7 +74,6 @@ export function PerformancePanel({ subjectId }: { subjectId: string }) {
         </div>
       </div>
 
-
       {latest && (
         <div className="rounded-xl border border-border bg-card p-6">
           {latest.answer ? (
@@ -89,7 +81,12 @@ export function PerformancePanel({ subjectId }: { subjectId: string }) {
           ) : latest.status === "error" ? (
             <p className="text-sm text-destructive">{latest.error ?? "Something went wrong"}</p>
           ) : (
-            <ThinkingStatus />
+            <ThinkingStatus
+              title="Analysing your performance…"
+              subtitle="This may take a few seconds"
+              meta="Reviewing your marked attempts…"
+              steps={GENERIC_STEPS}
+            />
           )}
         </div>
       )}
