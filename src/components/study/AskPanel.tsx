@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
+import { Copy, FileText, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
 import * as jobs from "@/lib/study-jobs";
 import { supabase } from "@/integrations/supabase/client";
 import { exportAskToPdf } from "@/lib/export-pdf";
@@ -8,7 +9,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
 import { LessonCapture } from "@/components/study/LessonCapture";
-import { ThinkingStatus } from "@/components/study/ThinkingStatus";
+import { ThinkingStatus, ASK_STEPS } from "@/components/study/ThinkingStatus";
+
+const ANSWER_LENGTH_LABEL: Record<"short" | "medium" | "long", string> = {
+  short: "Short",
+  medium: "Medium",
+  long: "Long + explanation",
+};
 
 export function AskPanel({
   subjectId,
@@ -41,6 +48,20 @@ export function AskPanel({
         .limit(6);
       if (error) throw error;
       return (data ?? []).reverse() as { question: string; response: string }[];
+    },
+  });
+
+  // Purely cosmetic — the "Sources: N" badge in the header. Read-only, no
+  // impact on how the question is answered.
+  const { data: sourceCount = 0 } = useQuery({
+    queryKey: ["subject-source-count", subjectId],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("documents")
+        .select("id", { count: "exact", head: true })
+        .eq("subject_id", subjectId);
+      if (error) throw error;
+      return count ?? 0;
     },
   });
 
@@ -77,12 +98,31 @@ export function AskPanel({
 
   return (
     <div className="space-y-6">
+      {/* Panel header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Sparkles className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="text-lg font-semibold leading-tight text-foreground">Ask</h2>
+            <p className="text-xs text-muted-foreground">Get answers from your notebooks</p>
+          </div>
+        </div>
+        <span className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground">
+          <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+          Sources: {sourceCount}
+        </span>
+      </div>
+
       {/* Mode switch: full-width toggle buttons with an explicit on/off state. */}
       <div className="grid grid-cols-1 gap-2 rounded-xl border border-border bg-muted p-1.5 sm:grid-cols-2">
-        {([
-          { id: "general", label: "General query" },
-          { id: "question", label: "Question (exam setter)" },
-        ] as const).map((option) => {
+        {(
+          [
+            { id: "general", label: "General query" },
+            { id: "question", label: "Question (exam setter)" },
+          ] as const
+        ).map((option) => {
           const active = tab === option.id;
           return (
             <button
@@ -116,20 +156,90 @@ export function AskPanel({
             <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-4 py-2 text-sm text-primary-foreground">
               {turn.question}
             </p>
-            <div className="rounded-xl border border-border bg-card p-5">
-              {turn.answer ? (
-                <Markdown>{turn.answer}</Markdown>
-              ) : turn.status === "error" ? null : (
-                <ThinkingStatus />
-              )}
-              {turn.status === "streaming" && turn.answer && (
-                <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-foreground align-text-bottom" />
-              )}
-              {turn.status === "error" && (
-                <p className="text-sm text-destructive">{turn.error ?? "Something went wrong"}</p>
-              )}
-              {turn.status === "done" && <LessonCapture subjectId={subjectId} />}
-            </div>
+
+            {/* Live progress — mounted only while this turn is streaming with no
+                text yet. It fully unmounts the instant the answer is ready or
+                tokens start arriving, so nothing lingers once generation ends. */}
+            {turn.status === "streaming" && !turn.answer && (
+              <div className="rounded-xl border border-border bg-card p-5">
+                <ThinkingStatus
+                  title="Generating answer…"
+                  subtitle="This may take a few seconds"
+                  meta="Thinking with your sources…"
+                  steps={ASK_STEPS}
+                />
+              </div>
+            )}
+
+            {(turn.answer || turn.status === "error") && (
+              <div className="rounded-xl border border-border bg-card p-5">
+                {turn.answer ? (
+                  <>
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        Answer
+                      </span>
+                      {turn.status === "done" && (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label="Copy answer"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(turn.answer);
+                                toast.success("Copied to clipboard");
+                              } catch {
+                                toast.error("Could not copy");
+                              }
+                            }}
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label="Good answer"
+                            onClick={() => toast.success("Thanks for the feedback")}
+                          >
+                            <ThumbsUp className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label="Bad answer"
+                            onClick={() => toast.info("Thanks — noted")}
+                          >
+                            <ThumbsDown className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                    <Markdown>{turn.answer}</Markdown>
+                    {turn.status === "streaming" && (
+                      <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-foreground align-text-bottom" />
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-destructive">{turn.error ?? "Something went wrong"}</p>
+                )}
+                {turn.status === "done" && turn.answer && (
+                  <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-xs text-muted-foreground">
+                    <span>Answer generated from {sourceCount} sources</span>
+                    <span>Answer length: {ANSWER_LENGTH_LABEL[answerLength]}</span>
+                    <span className="flex items-center gap-1">
+                      Generated just now
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    </span>
+                  </div>
+                )}
+                {turn.status === "done" && <LessonCapture subjectId={subjectId} />}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -168,11 +278,13 @@ export function AskPanel({
           <div className="mb-2 flex items-center gap-2 px-1">
             <span className="text-xs text-muted-foreground">Answer length:</span>
             <div className="inline-flex rounded-md border border-border bg-muted p-0.5">
-              {([
-                { id: "short", label: "Short (1–3 lines)" },
-                { id: "medium", label: "Medium" },
-                { id: "long", label: "Long + explanation" },
-              ] as const).map((option) => (
+              {(
+                [
+                  { id: "short", label: "Short (1–3 lines)" },
+                  { id: "medium", label: "Medium" },
+                  { id: "long", label: "Long + explanation" },
+                ] as const
+              ).map((option) => (
                 <button
                   key={option.id}
                   type="button"

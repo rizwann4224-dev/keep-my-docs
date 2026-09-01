@@ -6,7 +6,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SettingsDialog } from "@/components/study/SettingsDialog";
 import { DocumentsPanel } from "@/components/study/DocumentsPanel";
 import { AskPanel } from "@/components/study/AskPanel";
@@ -14,6 +13,7 @@ import { MarkPanel } from "@/components/study/MarkPanel";
 import { LessonsPanel } from "@/components/study/LessonsPanel";
 import { HistoryPanel } from "@/components/study/HistoryPanel";
 import { PerformancePanel } from "@/components/study/PerformancePanel";
+import { WorkspaceSidebar, type WorkspaceTab } from "@/components/study/WorkspaceSidebar";
 import * as jobs from "@/lib/study-jobs";
 
 export const Route = createFileRoute("/")({
@@ -47,7 +47,7 @@ function WorkspacePage() {
   const [openNotebook, setOpenNotebook] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newSubject, setNewSubject] = useState("");
-  const [tab, setTab] = useState("ask");
+  const [tab, setTab] = useState<WorkspaceTab>("ask");
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
@@ -126,11 +126,7 @@ function WorkspacePage() {
     <main className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-4">
-          <button
-            type="button"
-            onClick={() => setOpenNotebook(null)}
-            className="text-left"
-          >
+          <button type="button" onClick={() => setOpenNotebook(null)} className="text-left">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">
               Study Desk
             </p>
@@ -261,53 +257,36 @@ function WorkspacePage() {
             <Button variant="ghost" size="sm" onClick={() => setOpenNotebook(null)}>
               ← All notebooks
             </Button>
-            <Tabs
-              value={tab}
-              onValueChange={(next) => {
-                // Leaving Ask clears the live thread — every answer is kept in History.
-                if (tab === "ask" && next !== "ask") jobs.clear(`${active.id}:ask`);
-                setTab(next);
-                if (next === "history" || next === "mark-history" || next === "performance" || next === "ask") {
-                  queryClient.invalidateQueries({ queryKey: ["qa", active.id] });
-                  queryClient.invalidateQueries({ queryKey: ["ask-history", active.id] });
-                  queryClient.invalidateQueries({ queryKey: ["marked-count", active.id] });
-                }
-              }}
-              className="mt-4"
-            >
-              <TabsList>
-                <TabsTrigger value="ask">Ask</TabsTrigger>
-                <TabsTrigger value="mark">Answer &amp; marking</TabsTrigger>
-                <TabsTrigger value="performance">Strengths &amp; weak areas</TabsTrigger>
-                <TabsTrigger value="documents">Sources</TabsTrigger>
-                <TabsTrigger value="lessons">Lessons learned</TabsTrigger>
-                <TabsTrigger value="history">Ask history</TabsTrigger>
-                <TabsTrigger value="mark-history">Marking history</TabsTrigger>
-              </TabsList>
-              <div className="mt-6">
-                <TabsContent value="ask">
-                  <AskPanel subjectId={active.id} subjectName={active.name} />
-                </TabsContent>
-                <TabsContent value="mark">
-                  <MarkPanel subjectId={active.id} subjectName={active.name} />
-                </TabsContent>
-                <TabsContent value="performance">
-                  <PerformancePanel subjectId={active.id} />
-                </TabsContent>
-                <TabsContent value="documents">
-                  <DocumentsPanel subjectId={active.id} userId={user.id} />
-                </TabsContent>
-                <TabsContent value="lessons">
-                  <LessonsPanel subjectId={active.id} />
-                </TabsContent>
-                <TabsContent value="history">
-                  <HistoryPanel subjectId={active.id} mode="ask" />
-                </TabsContent>
-                <TabsContent value="mark-history">
-                  <HistoryPanel subjectId={active.id} mode="mark" />
-                </TabsContent>
+            <div className="mt-4 flex flex-col gap-6 lg:flex-row lg:items-start">
+              <WorkspaceSidebar
+                tab={tab}
+                notebookName={active.name}
+                onTabChange={(next) => {
+                  // Leaving Ask clears the live thread — every answer is kept in History.
+                  if (tab === "ask" && next !== "ask") jobs.clear(`${active.id}:ask`);
+                  setTab(next);
+                  if (
+                    next === "history" ||
+                    next === "mark-history" ||
+                    next === "performance" ||
+                    next === "ask"
+                  ) {
+                    queryClient.invalidateQueries({ queryKey: ["qa", active.id] });
+                    queryClient.invalidateQueries({ queryKey: ["ask-history", active.id] });
+                    queryClient.invalidateQueries({ queryKey: ["marked-count", active.id] });
+                  }
+                }}
+              />
+              <div className="min-w-0 flex-1">
+                {tab === "ask" && <AskPanel subjectId={active.id} subjectName={active.name} />}
+                {tab === "mark" && <MarkPanel subjectId={active.id} subjectName={active.name} />}
+                {tab === "performance" && <PerformancePanel subjectId={active.id} />}
+                {tab === "documents" && <DocumentsPanel subjectId={active.id} userId={user.id} />}
+                {tab === "lessons" && <LessonsPanel subjectId={active.id} />}
+                {tab === "history" && <HistoryPanel subjectId={active.id} mode="ask" />}
+                {tab === "mark-history" && <HistoryPanel subjectId={active.id} mode="mark" />}
               </div>
-            </Tabs>
+            </div>
           </>
         )}
       </div>

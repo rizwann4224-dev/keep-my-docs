@@ -1,12 +1,13 @@
 import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
+import { CheckCircle2, Sparkles } from "lucide-react";
 import * as jobs from "@/lib/study-jobs";
 import type { MarkPart, Rigour } from "@/lib/study-prompts";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/study/Markdown";
 import { LessonCapture } from "@/components/study/LessonCapture";
-import { ThinkingStatus } from "@/components/study/ThinkingStatus";
+import { ThinkingStatus, MARK_STEPS } from "@/components/study/ThinkingStatus";
 import { ChallengeEvaluation, type ChallengeState } from "@/components/study/ChallengeEvaluation";
 import { exportMarkingToWord } from "@/lib/export-docx";
 
@@ -23,14 +24,7 @@ const RIGOURS: { id: Rigour; label: string; hint: string }[] = [
   { id: "hard", label: "Hard / difficult", hint: "Distinction standard, no benefit of the doubt" },
 ];
 
-
-export function MarkPanel({
-  subjectId,
-  subjectName,
-}: {
-  subjectId: string;
-  subjectName: string;
-}) {
+export function MarkPanel({ subjectId, subjectName }: { subjectId: string; subjectName: string }) {
   const [question, setQuestion] = useState("");
   const [userAnswer, setUserAnswer] = useState("");
   const [parts, setParts] = useState<MarkPart[]>(["feedback", "marks", "suggested"]);
@@ -107,6 +101,33 @@ export function MarkPanel({
 
   return (
     <div className="space-y-6">
+      {/* Panel header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <CheckCircle2 className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="text-lg font-semibold leading-tight text-foreground">
+              Answer &amp; marking
+            </h2>
+            <p className="text-xs text-muted-foreground">Mark your answer using marking standard</p>
+          </div>
+        </div>
+        <Button
+          onClick={run}
+          disabled={
+            running ||
+            parts.length === 0 ||
+            question.trim().length < 3 ||
+            (needsAnswer && userAnswer.trim().length < 3)
+          }
+        >
+          <Sparkles className="h-4 w-4" />
+          {running ? "Working…" : "Generate"}
+        </Button>
+      </div>
+
       <div className="rounded-xl border border-border bg-card p-5">
         <h2 className="text-base font-semibold text-foreground">Marking standard</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -124,7 +145,10 @@ export function MarkPanel({
                   : "border-border bg-background hover:bg-muted"
               }`}
             >
-              <span className="block text-sm font-medium text-foreground">{option.label}</span>
+              <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                {rigour === option.id && <CheckCircle2 className="h-3.5 w-3.5 text-primary" />}
+                {option.label}
+              </span>
               <span className="block text-xs text-muted-foreground">{option.hint}</span>
             </button>
           ))}
@@ -145,9 +169,7 @@ export function MarkPanel({
                 type="button"
                 onClick={() => toggle(option.id)}
                 className={`rounded-lg border p-3 text-left transition-colors ${
-                  active
-                    ? "border-primary bg-accent"
-                    : "border-border bg-background hover:bg-muted"
+                  active ? "border-primary bg-accent" : "border-border bg-background hover:bg-muted"
                 }`}
               >
                 <span className="block text-sm font-medium text-foreground">{option.label}</span>
@@ -158,12 +180,12 @@ export function MarkPanel({
         </div>
       </div>
 
-
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="text-base font-semibold text-foreground">Question / scenario</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Include all sub-parts (i), (ii), (iii) and the marks available. Long scenarios are fully accepted.
+            Include all sub-parts (i), (ii), (iii) and the marks available. Long scenarios are fully
+            accepted.
           </p>
           <Textarea
             value={question}
@@ -196,30 +218,27 @@ export function MarkPanel({
         </div>
       </div>
 
-      <div className="flex justify-end">
-        <Button
-          onClick={run}
-          disabled={
-            running ||
-            parts.length === 0 ||
-            question.trim().length < 3 ||
-            (needsAnswer && userAnswer.trim().length < 3)
-          }
-        >
-          {running ? "Working…" : "Generate"}
-        </Button>
-      </div>
+      {/* Live progress — mounted only while marking is running and no text has
+          arrived yet; it disappears entirely once the evaluation is ready. */}
+      {latest && latest.status === "streaming" && !latest.answer && (
+        <div className="rounded-xl border border-border bg-card p-6">
+          <ThinkingStatus
+            title="Marking your answer…"
+            subtitle="This may take a few seconds"
+            meta="Evaluating your answer…"
+            steps={MARK_STEPS(RIGOURS.find((r) => r.id === (submitted?.rigour ?? rigour))?.label)}
+          />
+        </div>
+      )}
 
-      {latest && (
+      {latest && (latest.answer || latest.status === "error") && (
         <div className="rounded-xl border border-border bg-card p-6">
           {latest.answer ? (
             <Markdown>{latest.answer}</Markdown>
-          ) : latest.status === "error" ? (
-            <p className="text-sm text-destructive">{latest.error ?? "Something went wrong"}</p>
           ) : (
-            <ThinkingStatus />
+            <p className="text-sm text-destructive">{latest.error ?? "Something went wrong"}</p>
           )}
-          
+
           {latest.status === "done" && latest.answer && hasMarks && markData && (
             <ChallengeEvaluation
               subjectId={subjectId}
@@ -233,7 +252,7 @@ export function MarkPanel({
               }}
             />
           )}
-          
+
           {latest.status === "done" && latest.answer && (
             <div className="mt-4 flex justify-end border-t border-border pt-4">
               <Button
@@ -255,7 +274,6 @@ export function MarkPanel({
                         "Strict",
                       response: latest.answer,
                     });
-
                   } catch {
                     toast.error("Could not build the Word file");
                   } finally {
