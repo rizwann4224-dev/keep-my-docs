@@ -77,41 +77,38 @@ export function AskPanel({
 
   return (
     <div className="space-y-6">
-      <div className="inline-flex rounded-lg border border-border bg-muted p-1">
+      {/* Mode switch: full-width toggle buttons with an explicit on/off state. */}
+      <div className="grid grid-cols-1 gap-2 rounded-xl border border-border bg-muted p-1.5 sm:grid-cols-2">
         {([
           { id: "general", label: "General query" },
           { id: "question", label: "Question (exam setter)" },
-        ] as const).map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => setTab(option.id)}
-            className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-              tab === option.id
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {option.label}
-          </button>
-        ))}
+        ] as const).map((option) => {
+          const active = tab === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setTab(option.id)}
+              className={`flex w-full items-center justify-center gap-2.5 rounded-lg px-6 py-3 text-sm font-semibold transition-colors ${
+                active
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`h-2.5 w-2.5 shrink-0 rounded-full border transition-colors ${
+                  active
+                    ? "border-primary-foreground bg-primary-foreground"
+                    : "border-muted-foreground/60 bg-transparent"
+                }`}
+              />
+              {option.label}
+            </button>
+          );
+        })}
       </div>
-
-      {turns.length === 0 && (
-        <div className="rounded-xl border border-border bg-card p-8 text-center">
-          <h2 className="text-base font-semibold text-foreground">
-            {isExam
-              ? "Set an exam from your sources"
-              : "Ask anything about your sources"}
-          </h2>
-          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            {isExam
-              ? "Acts as an ICAP professional-level paper setter. Tell it the topic, number of questions, marks and difficulty — it drafts exam-standard scenario questions with a Required section and mark allocation, drawn strictly from your uploaded material."
-              : "You get the direct answer first — a rate, a figure, a name, a rule — then only the supporting detail, cited from your documents. Answers keep generating in the background if you move around the app."}
-          </p>
-        </div>
-      )}
-
 
       <div className="space-y-5">
         {turns.map((turn) => (
