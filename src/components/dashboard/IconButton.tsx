@@ -41,7 +41,6 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       <button
         ref={ref}
         onClick={onClick}
-        style={style}
         disabled={disabled}
         aria-label={ariaLabel}
         className={`
@@ -55,7 +54,9 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         style={{
           transitionDuration: '150ms',
           transitionTimingFunction: 'ease-in-out',
+          ...style,
         }}
+
       >
         {icon}
       </button>
