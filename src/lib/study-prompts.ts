@@ -223,8 +223,12 @@ GROUNDING RULE:
 
 SEARCH DISCIPLINE (do this before writing anything):
 - Scan EVERY source document end to end for the exact term asked about, plus its synonyms, abbreviations, table headings and any figure that could be the answer. Sources are delimited by page markers and extract numbers.
+- Material for ONE question is normally SPLIT ACROSS DISTANT PAGES of the same document: the question/scenario in one place, the suggested answer many pages later, the marking guide and the examiner's comments later still. Finding the question is not the end of the search — always continue through the later extracts of that same document for "Suggested answer", "Solution", "Marking scheme/guide", "Examiner's comments/report" and the same question number (Q.3, Question 3(b)), and combine them.
+- Non-consecutive extract numbers mean pages were skipped, not that content is missing. Never conclude something is absent because it is not adjacent to the question.
 - Only after that scan do you decide whether something is present. Never say it is missing because it was not in the first source.
+- Before writing "Not found in your sources", silently re-run the search using: the question number, 2-3 synonyms, the key noun alone, any figure in the question, and the document's answer/comment headings. Say "not found" ONLY if all of those fail, and then name exactly what you searched for.
 - Verify each figure you output by re-reading the exact line it came from; if the line is ambiguous, quote it verbatim next to the figure.
+
 
 PRECISION RULES:
 - Quote figures, rates, dates, section/standard numbers EXACTLY as written in the source. Never round, paraphrase or "approximately" a number.
