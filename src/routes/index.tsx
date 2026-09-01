@@ -6,7 +6,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SettingsDialog } from "@/components/study/SettingsDialog";
 import { DocumentsPanel } from "@/components/study/DocumentsPanel";
 import { AskPanel } from "@/components/study/AskPanel";
@@ -14,6 +13,7 @@ import { MarkPanel } from "@/components/study/MarkPanel";
 import { LessonsPanel } from "@/components/study/LessonsPanel";
 import { HistoryPanel } from "@/components/study/HistoryPanel";
 import { PerformancePanel } from "@/components/study/PerformancePanel";
+import { StudyDeskSidebar, type StudyTab } from "@/components/study/StudyDeskSidebar";
 import * as jobs from "@/lib/study-jobs";
 
 export const Route = createFileRoute("/")({
@@ -40,6 +40,16 @@ export const Route = createFileRoute("/")({
 
 type Subject = { id: string; name: string; created_at: string };
 
+const TAB_TITLES: Record<StudyTab, string> = {
+  ask: "Ask",
+  mark: "Answer & marking",
+  performance: "Strengths & weak areas",
+  documents: "Sources",
+  lessons: "Lessons learned",
+  history: "Ask history",
+  "mark-history": "Marking history",
+};
+
 function WorkspacePage() {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
@@ -47,7 +57,8 @@ function WorkspacePage() {
   const [openNotebook, setOpenNotebook] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newSubject, setNewSubject] = useState("");
-  const [tab, setTab] = useState("ask");
+  const [tab, setTab] = useState<StudyTab>("ask");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
@@ -122,22 +133,94 @@ function WorkspacePage() {
 
   const active = subjects.find((s) => s.id === openNotebook) ?? null;
 
+  function selectTab(next: StudyTab) {
+    // Leaving Ask clears the live thread — every answer is kept in History.
+    if (tab === "ask" && next !== "ask" && active) jobs.clear(`${active.id}:ask`);
+    setTab(next);
+    if (
+      active &&
+      (next === "history" || next === "mark-history" || next === "performance" || next === "ask")
+    ) {
+      queryClient.invalidateQueries({ queryKey: ["qa", active.id] });
+      queryClient.invalidateQueries({ queryKey: ["ask-history", active.id] });
+      queryClient.invalidateQueries({ queryKey: ["marked-count", active.id] });
+    }
+  }
+
+  if (active) {
+    return (
+      <div className="flex min-h-screen bg-background">
+        <StudyDeskSidebar
+          tab={tab}
+          onSelect={selectTab}
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
+        />
+        <main className="min-h-screen flex-1 overflow-x-hidden">
+          <header className="border-b border-border bg-card">
+            <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOpenNotebook(null)}
+                  className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  ← All notebooks
+                </button>
+                <span className="hidden text-border sm:inline">|</span>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">
+                    {active.name}
+                  </p>
+                  <h1 className="mt-0.5 text-lg font-semibold text-foreground">
+                    {TAB_TITLES[tab]}
+                  </h1>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="hidden text-sm text-muted-foreground sm:inline">{user.email}</span>
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/icap">ICAP exam tool</Link>
+                </Button>
+                <SettingsDialog />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    navigate({ to: "/auth" });
+                  }}
+                >
+                  Sign out
+                </Button>
+              </div>
+            </div>
+          </header>
+
+          <div className="mx-auto max-w-5xl px-6 py-8">
+            {tab === "ask" && <AskPanel subjectId={active.id} subjectName={active.name} />}
+            {tab === "mark" && <MarkPanel subjectId={active.id} subjectName={active.name} />}
+            {tab === "performance" && <PerformancePanel subjectId={active.id} />}
+            {tab === "documents" && <DocumentsPanel subjectId={active.id} userId={user.id} />}
+            {tab === "lessons" && <LessonsPanel subjectId={active.id} />}
+            {tab === "history" && <HistoryPanel subjectId={active.id} mode="ask" />}
+            {tab === "mark-history" && <HistoryPanel subjectId={active.id} mode="mark" />}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-4">
-          <button
-            type="button"
-            onClick={() => setOpenNotebook(null)}
-            className="text-left"
-          >
+          <div className="text-left">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">
               Study Desk
             </p>
-            <h1 className="mt-0.5 text-lg font-semibold text-foreground">
-              {active ? active.name : "Your notebooks"}
-            </h1>
-          </button>
+            <h1 className="mt-0.5 text-lg font-semibold text-foreground">Your notebooks</h1>
+          </div>
           <div className="flex items-center gap-2">
             <span className="hidden text-sm text-muted-foreground sm:inline">{user.email}</span>
             <Button asChild variant="outline" size="sm">
@@ -159,157 +242,98 @@ function WorkspacePage() {
       </header>
 
       <div className="mx-auto max-w-6xl px-6 py-8">
-        {!active ? (
-          <>
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-semibold text-foreground">Notebooks</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  One notebook per subject — its own sources, questions and lessons learned.
-                </p>
-              </div>
-            </div>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-semibold text-foreground">Notebooks</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              One notebook per subject — its own sources, questions and lessons learned.
+            </p>
+          </div>
+        </div>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-xl border-2 border-dashed border-border bg-card p-5">
-                {creating ? (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (newSubject.trim()) createSubject.mutate(newSubject.trim());
-                    }}
-                    className="space-y-3"
-                  >
-                    <Input
-                      autoFocus
-                      value={newSubject}
-                      onChange={(e) => setNewSubject(e.target.value)}
-                      placeholder="e.g. Audit & Assurance"
-                    />
-                    <div className="flex gap-2">
-                      <Button type="submit" size="sm" disabled={!newSubject.trim()}>
-                        Create
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setCreating(false)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </form>
-                ) : (
-                  <button
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="rounded-xl border-2 border-dashed border-border bg-card p-5">
+            {creating ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (newSubject.trim()) createSubject.mutate(newSubject.trim());
+                }}
+                className="space-y-3"
+              >
+                <Input
+                  autoFocus
+                  value={newSubject}
+                  onChange={(e) => setNewSubject(e.target.value)}
+                  placeholder="e.g. Audit & Assurance"
+                />
+                <div className="flex gap-2">
+                  <Button type="submit" size="sm" disabled={!newSubject.trim()}>
+                    Create
+                  </Button>
+                  <Button
                     type="button"
-                    onClick={() => setCreating(true)}
-                    className="flex h-full w-full flex-col items-center justify-center gap-2 py-6 text-center"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setCreating(false)}
                   >
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-xl leading-none text-primary-foreground">
-                      +
-                    </span>
-                    <span className="text-sm font-medium text-foreground">New notebook</span>
-                    <span className="text-xs text-muted-foreground">
-                      Start a new subject workspace
-                    </span>
-                  </button>
-                )}
-              </div>
-
-              {subjects.map((subject) => (
-                <div
-                  key={subject.id}
-                  className="group relative rounded-xl border border-border bg-card p-5 transition-shadow hover:shadow-md"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setOpenNotebook(subject.id)}
-                    className="block w-full text-left"
-                  >
-                    <span className="text-2xl">📓</span>
-                    <h3 className="mt-3 truncate text-base font-semibold text-foreground">
-                      {subject.name}
-                    </h3>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {counts[subject.id] ?? 0} source{(counts[subject.id] ?? 0) === 1 ? "" : "s"} ·{" "}
-                      {new Date(subject.created_at).toLocaleDateString(undefined, {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Delete ${subject.name}`}
-                    onClick={() => {
-                      if (window.confirm(`Delete "${subject.name}" and everything in it?`)) {
-                        deleteSubject.mutate(subject.id);
-                      }
-                    }}
-                    className="absolute right-3 top-3 rounded px-2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                  >
-                    ×
-                  </button>
+                    Cancel
+                  </Button>
                 </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            <Button variant="ghost" size="sm" onClick={() => setOpenNotebook(null)}>
-              ← All notebooks
-            </Button>
-            <Tabs
-              value={tab}
-              onValueChange={(next) => {
-                // Leaving Ask clears the live thread — every answer is kept in History.
-                if (tab === "ask" && next !== "ask") jobs.clear(`${active.id}:ask`);
-                setTab(next);
-                if (next === "history" || next === "mark-history" || next === "performance" || next === "ask") {
-                  queryClient.invalidateQueries({ queryKey: ["qa", active.id] });
-                  queryClient.invalidateQueries({ queryKey: ["ask-history", active.id] });
-                  queryClient.invalidateQueries({ queryKey: ["marked-count", active.id] });
-                }
-              }}
-              className="mt-4"
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                className="flex h-full w-full flex-col items-center justify-center gap-2 py-6 text-center"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-xl leading-none text-primary-foreground">
+                  +
+                </span>
+                <span className="text-sm font-medium text-foreground">New notebook</span>
+                <span className="text-xs text-muted-foreground">Start a new subject workspace</span>
+              </button>
+            )}
+          </div>
+
+          {subjects.map((subject) => (
+            <div
+              key={subject.id}
+              className="group relative rounded-xl border border-border bg-card p-5 transition-shadow hover:shadow-md"
             >
-              <TabsList>
-                <TabsTrigger value="ask">Ask</TabsTrigger>
-                <TabsTrigger value="mark">Answer &amp; marking</TabsTrigger>
-                <TabsTrigger value="performance">Strengths &amp; weak areas</TabsTrigger>
-                <TabsTrigger value="documents">Sources</TabsTrigger>
-                <TabsTrigger value="lessons">Lessons learned</TabsTrigger>
-                <TabsTrigger value="history">Ask history</TabsTrigger>
-                <TabsTrigger value="mark-history">Marking history</TabsTrigger>
-              </TabsList>
-              <div className="mt-6">
-                <TabsContent value="ask">
-                  <AskPanel subjectId={active.id} subjectName={active.name} />
-                </TabsContent>
-                <TabsContent value="mark">
-                  <MarkPanel subjectId={active.id} subjectName={active.name} />
-                </TabsContent>
-                <TabsContent value="performance">
-                  <PerformancePanel subjectId={active.id} />
-                </TabsContent>
-                <TabsContent value="documents">
-                  <DocumentsPanel subjectId={active.id} userId={user.id} />
-                </TabsContent>
-                <TabsContent value="lessons">
-                  <LessonsPanel subjectId={active.id} />
-                </TabsContent>
-                <TabsContent value="history">
-                  <HistoryPanel subjectId={active.id} mode="ask" />
-                </TabsContent>
-                <TabsContent value="mark-history">
-                  <HistoryPanel subjectId={active.id} mode="mark" />
-                </TabsContent>
-              </div>
-            </Tabs>
-          </>
-        )}
+              <button
+                type="button"
+                onClick={() => setOpenNotebook(subject.id)}
+                className="block w-full text-left"
+              >
+                <span className="text-2xl">📓</span>
+                <h3 className="mt-3 truncate text-base font-semibold text-foreground">
+                  {subject.name}
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {counts[subject.id] ?? 0} source{(counts[subject.id] ?? 0) === 1 ? "" : "s"} ·{" "}
+                  {new Date(subject.created_at).toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </p>
+              </button>
+              <button
+                type="button"
+                aria-label={`Delete ${subject.name}`}
+                onClick={() => {
+                  if (window.confirm(`Delete "${subject.name}" and everything in it?`)) {
+                    deleteSubject.mutate(subject.id);
+                  }
+                }}
+                className="absolute right-3 top-3 rounded px-2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     </main>
   );

@@ -1,14 +1,15 @@
 import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
+import { FileText, Sparkles } from "lucide-react";
 import * as jobs from "@/lib/study-jobs";
 import { supabase } from "@/integrations/supabase/client";
 import { exportAskToPdf } from "@/lib/export-pdf";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Markdown } from "@/components/study/Markdown";
 import { LessonCapture } from "@/components/study/LessonCapture";
 import { ThinkingStatus } from "@/components/study/ThinkingStatus";
+import { AnswerCard } from "@/components/study/AnswerCard";
 
 export function AskPanel({
   subjectId,
@@ -41,6 +42,18 @@ export function AskPanel({
         .limit(6);
       if (error) throw error;
       return (data ?? []).reverse() as { question: string; response: string }[];
+    },
+  });
+
+  const { data: sourceCount = 0 } = useQuery({
+    queryKey: ["subject-source-count", subjectId],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("documents")
+        .select("id", { count: "exact", head: true })
+        .eq("subject_id", subjectId);
+      if (error) throw error;
+      return count ?? 0;
     },
   });
 
@@ -77,12 +90,31 @@ export function AskPanel({
 
   return (
     <div className="space-y-6">
+      {/* Header: mirrors the "Ask / Get answers from your notebooks" banner. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Sparkles className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">Ask</h2>
+            <p className="text-sm text-muted-foreground">Get answers from your notebooks</p>
+          </div>
+        </div>
+        <span className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+          Sources: {sourceCount}
+        </span>
+      </div>
+
       {/* Mode switch: full-width toggle buttons with an explicit on/off state. */}
       <div className="grid grid-cols-1 gap-2 rounded-xl border border-border bg-muted p-1.5 sm:grid-cols-2">
-        {([
-          { id: "general", label: "General query" },
-          { id: "question", label: "Question (exam setter)" },
-        ] as const).map((option) => {
+        {(
+          [
+            { id: "general", label: "General query" },
+            { id: "question", label: "Question (exam setter)" },
+          ] as const
+        ).map((option) => {
           const active = tab === option.id;
           return (
             <button
@@ -110,26 +142,90 @@ export function AskPanel({
         })}
       </div>
 
+      {!isExam && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground">Answer length:</span>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { id: "short", label: "Short" },
+                { id: "medium", label: "Medium" },
+                { id: "long", label: "Long + explanation" },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setAnswerLength(option.id)}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+                  answerLength === option.id
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-border text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border bg-card p-3 shadow-sm">
+        <Textarea
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          placeholder={
+            isExam
+              ? "e.g. Set 2 professional-level questions on IAS 12 deferred tax, 15 marks each, hard difficulty, with the marking guide."
+              : "e.g. What is the tax rate for a small company?  (Enter to send, Shift+Enter for a new line)"
+          }
+          className="min-h-32 resize-y border-0 focus-visible:ring-0"
+        />
+        <div className="mt-1 flex items-center justify-between px-1">
+          <span className="text-xs text-muted-foreground">
+            {question.length.toLocaleString()} chars
+          </span>
+          <Button onClick={submit} disabled={running || question.trim().length < 2}>
+            {running ? "Thinking…" : isExam ? "Set exam" : "Ask"}
+            {!running && <span aria-hidden>→</span>}
+          </Button>
+        </div>
+      </div>
+
       <div className="space-y-5">
         {turns.map((turn) => (
           <div key={turn.id} className="space-y-3">
             <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-4 py-2 text-sm text-primary-foreground">
               {turn.question}
             </p>
-            <div className="rounded-xl border border-border bg-card p-5">
-              {turn.answer ? (
-                <Markdown>{turn.answer}</Markdown>
-              ) : turn.status === "error" ? null : (
-                <ThinkingStatus />
-              )}
-              {turn.status === "streaming" && turn.answer && (
-                <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-foreground align-text-bottom" />
-              )}
-              {turn.status === "error" && (
+
+            {/* Live progress — real-time, purely visual, and unmounts itself
+                the instant there is any answer text or a terminal status, so
+                nothing about the request/response timing is affected. */}
+            {turn.status === "streaming" && !turn.answer && <ThinkingStatus />}
+
+            {turn.answer && (
+              <AnswerCard
+                answer={turn.answer}
+                streaming={turn.status === "streaming"}
+                sourceCount={turn.status === "done" ? sourceCount : undefined}
+                answerLength={turn.status === "done" && !isExam ? answerLength : undefined}
+              >
+                {turn.status === "done" && <LessonCapture subjectId={subjectId} />}
+              </AnswerCard>
+            )}
+
+            {turn.status === "error" && (
+              <div className="rounded-xl border border-border bg-card p-5">
                 <p className="text-sm text-destructive">{turn.error ?? "Something went wrong"}</p>
-              )}
-              {turn.status === "done" && <LessonCapture subjectId={subjectId} />}
-            </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -162,58 +258,6 @@ export function AskPanel({
           </Button>
         </div>
       )}
-
-      <div className="sticky bottom-4 rounded-xl border border-border bg-card p-3 shadow-sm">
-        {!isExam && (
-          <div className="mb-2 flex items-center gap-2 px-1">
-            <span className="text-xs text-muted-foreground">Answer length:</span>
-            <div className="inline-flex rounded-md border border-border bg-muted p-0.5">
-              {([
-                { id: "short", label: "Short (1–3 lines)" },
-                { id: "medium", label: "Medium" },
-                { id: "long", label: "Long + explanation" },
-              ] as const).map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setAnswerLength(option.id)}
-                  className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                    answerLength === option.id
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        <Textarea
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          placeholder={
-            isExam
-              ? "e.g. Set 2 professional-level questions on IAS 12 deferred tax, 15 marks each, hard difficulty, with the marking guide."
-              : "e.g. What is the tax rate for a small company?  (Enter to send, Shift+Enter for a new line)"
-          }
-          className="min-h-32 resize-y border-0 focus-visible:ring-0"
-        />
-        <div className="mt-1 flex items-center justify-between px-1">
-          <span className="text-xs text-muted-foreground">
-            {question.length.toLocaleString()} chars — paste the full question/scenario
-          </span>
-          <Button onClick={submit} disabled={running || question.trim().length < 2}>
-            {running ? "Thinking…" : isExam ? "Set exam" : "Ask"}
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }
