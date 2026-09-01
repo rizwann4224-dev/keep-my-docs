@@ -67,8 +67,26 @@ ${usable
   const bigrams: string[] = [];
   for (let i = 0; i < base.length - 1; i++) bigrams.push(`${base[i]} ${base[i + 1]}`);
 
+  // Question anchors ("Q.3", "Question 4", "Q3(b)") — in past papers the question,
+  // its suggested answer and the examiner's comments all repeat this label many
+  // pages apart, so it is the strongest link between them.
+  const anchors = Array.from(
+    new Set(
+      (lowerQuery.match(/\b(?:q(?:uestion)?\.?\s?\d{1,2})\b/g) ?? []).map((a) =>
+        a.replace(/\s+|\./g, ""),
+      ),
+    ),
+  );
+  const anchorRe = anchors.length
+    ? new RegExp(`\\b(?:q(?:uestion)?)\\.?\\s?(${anchors.map((a) => a.replace(/\D/g, "")).join("|")})\\b`, "i")
+    : null;
+
+  // Passages that hold the marking side of a past paper.
+  const ANSWER_MARKER =
+    /\b(suggested answer|model answer|solution|answer\s*[:\-]|marking (?:scheme|guide|key)|mark plan|examiner'?s? (?:comments?|report|observations?)|marks? allocated|award(?:ed)? marks?)\b/i;
+
   const CHUNK = 2_500;
-  type Chunk = { doc: string; idx: number; text: string; score: number };
+  type Chunk = { doc: string; idx: number; text: string; score: number; marker: boolean };
   const chunks: Chunk[] = [];
 
   const count = (haystack: string, needle: string) => {
@@ -101,7 +119,12 @@ ${usable
       if (/\d+(\.\d+)?\s*%/.test(slice)) score += 6;
       if (/\b(rate|threshold|limit|section|para|schedule|table|definition|means)\b/i.test(slice))
         score += 3;
-      chunks.push({ doc: doc.name, idx: i / CHUNK, text: slice, score });
+      const marker = ANSWER_MARKER.test(slice);
+      // A "Suggested answer"/"Examiner's comments" block that also mentions the
+      // question's own wording or its number is almost certainly the missing half.
+      if (marker && (distinct >= 2 || (anchorRe && anchorRe.test(slice)))) score += 40;
+      if (anchorRe && anchorRe.test(slice)) score += 30;
+      chunks.push({ doc: doc.name, idx: i / CHUNK, text: slice, score, marker });
     }
   }
 
@@ -120,6 +143,30 @@ ${usable
     return true;
   };
 
+  /** Neighbours plus the answer/examiner blocks that follow the same question later on. */
+  const takeCompanions = (chunk: Chunk) => {
+    let added = 0;
+    for (const d of [-2, -1, 1, 2]) {
+      if (take(byKey.get(`${chunk.doc}#${chunk.idx + d}`))) added += CHUNK;
+    }
+    // Walk forward through the same document: a question on page 1 has its answer
+    // on page 3 and the examiner's comments on page 5 — pull those in even though
+    // they are far away, provided they look like answer/marking material.
+    for (let d = 3; d <= 16; d++) {
+      const next = byKey.get(`${chunk.doc}#${chunk.idx + d}`);
+      if (!next) break;
+      const linked =
+        next.marker || (anchorRe ? anchorRe.test(next.text) : false) || next.score >= chunk.score * 0.4;
+      if (!linked) continue;
+      if (take(next)) {
+        added += CHUNK;
+        // Keep the block intact so the answer is never cut mid-way.
+        if (take(byKey.get(`${next.doc}#${next.idx + 1}`))) added += CHUNK;
+      }
+    }
+    return added;
+  };
+
   // Opening of every document first: definitions, contents and headings give context.
   for (const doc of usable) take(byKey.get(`${doc.name}#0`));
 
@@ -132,8 +179,7 @@ ${usable
     for (const chunk of ranked.filter((c) => c.doc === doc.name)) {
       if (docUsed >= perDocQuota) break;
       if (take(chunk)) docUsed += chunk.text.length;
-      if (take(byKey.get(`${chunk.doc}#${chunk.idx - 1}`))) docUsed += CHUNK;
-      if (take(byKey.get(`${chunk.doc}#${chunk.idx + 1}`))) docUsed += CHUNK;
+      docUsed += takeCompanions(chunk);
     }
   }
 
@@ -142,8 +188,7 @@ ${usable
   for (const chunk of ranked) {
     if (used >= budget) break;
     take(chunk);
-    take(byKey.get(`${chunk.doc}#${chunk.idx - 1}`));
-    take(byKey.get(`${chunk.doc}#${chunk.idx + 1}`));
+    takeCompanions(chunk);
   }
 
   if (picked.size === 0) return inventory + buildSourceBlock(usable);
@@ -161,6 +206,7 @@ ${c.text}
       .join("\n\n")
   );
 }
+
 
 
 export function buildLessonsBlock(notes: { content: string }[]): string {
