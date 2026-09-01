@@ -19,6 +19,7 @@ export function AskPanel({
 }) {
   const [tab, setTab] = useState<"general" | "question">("general");
   const [question, setQuestion] = useState("");
+  const [answerLength, setAnswerLength] = useState<"short" | "medium" | "long">("medium");
   const isExam = tab === "question";
   const key = `${subjectId}:${isExam ? "exam" : "ask"}`;
 
@@ -52,12 +53,24 @@ export function AskPanel({
     const past = saved
       .filter((entry) => !live.some((t) => t.question === entry.question))
       .map((entry) => ({ question: entry.question, answer: entry.response }));
-    jobs.startRun(key, {
-      subjectId,
-      mode: isExam ? "exam" : "ask",
-      question: q,
-      history: [...past, ...live],
-    });
+    // The selected answer length rides along as an instruction so the model
+    // honours it, while the on-screen bubble keeps the clean question.
+    const directive =
+      !isExam && answerLength === "short"
+        ? "\n\n[Answer format: VERY SHORT — the direct answer only in 1–3 lines. No headings, no extra explanation.]"
+        : !isExam && answerLength === "long"
+          ? "\n\n[Answer format: LONG — a thorough answer with full explanation, structure, and references to the sources. Still lead with the direct answer.]"
+          : "";
+    jobs.startRun(
+      key,
+      {
+        subjectId,
+        mode: isExam ? "exam" : "ask",
+        question: q + directive,
+        history: [...past, ...live],
+      },
+      q,
+    );
     setQuestion("");
     toast.info("Working — you can switch tabs, the answer keeps generating.");
   }
@@ -154,6 +167,31 @@ export function AskPanel({
       )}
 
       <div className="sticky bottom-4 rounded-xl border border-border bg-card p-3 shadow-sm">
+        {!isExam && (
+          <div className="mb-2 flex items-center gap-2 px-1">
+            <span className="text-xs text-muted-foreground">Answer length:</span>
+            <div className="inline-flex rounded-md border border-border bg-muted p-0.5">
+              {([
+                { id: "short", label: "Short (1–3 lines)" },
+                { id: "medium", label: "Medium" },
+                { id: "long", label: "Long + explanation" },
+              ] as const).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setAnswerLength(option.id)}
+                  className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                    answerLength === option.id
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <Textarea
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
