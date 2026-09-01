@@ -89,8 +89,9 @@ export function MarkPanel({
     // Look for patterns like "Marks awarded: 18/20" or "18 / 20"
     const match = response.match(/Marks awarded:\s*(\d+)\s*\/\s*(\d+)|(\d+)\s*\/\s*(\d+)\s*marks/i);
     if (match) {
-      const marks = match[1] ? parseInt(match[1]) : parseInt(match[3]);
-      const maxMarks = match[2] ? parseInt(match[2]) : parseInt(match[4]);
+      const marks = parseInt(match[1] ?? match[3] ?? "");
+      const maxMarks = parseInt(match[2] ?? match[4] ?? "");
+      if (Number.isNaN(marks) || Number.isNaN(maxMarks)) return null;
       return { marks, maxMarks };
     }
     return null;
