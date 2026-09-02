@@ -13,6 +13,9 @@ const MODEL_CHAIN = [
 /** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
 const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
 
+/** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
+const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+
 const Body = z.object({
   system: z.string().min(1),
   user: z.string().min(1),
@@ -105,6 +108,45 @@ export const Route = createFileRoute("/api/public/icap")({
                 if (text) return Response.json({ text, source: "google", model });
                 lastStatus = 502;
                 lastBody = "Empty reply from the fallback model.";
+                continue;
+              }
+              lastStatus = res.status;
+              lastBody = await res.text().catch(() => "");
+              if (res.status !== 429 && res.status !== 503) break;
+              await new Promise((r) => setTimeout(r, 800));
+            }
+          }
+        }
+
+        // Google key also exhausted or rate limited — fall back to the Groq key.
+        if (lastStatus === 402 || lastStatus === 429 || lastStatus === 401 || lastStatus === 503) {
+          const groqKey = process.env["GROQ_API_KEY"];
+          if (groqKey) {
+            for (const model of GROQ_MODEL_CHAIN) {
+              const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${groqKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model,
+                  temperature: 0,
+                  max_tokens: Math.round((tokens ?? 1000) * 1.8),
+                  messages: [
+                    { role: "system", content: system },
+                    { role: "user", content: user },
+                  ],
+                }),
+              });
+              if (res.ok) {
+                const json = (await res.json()) as {
+                  choices?: { message?: { content?: string } }[];
+                };
+                const text = (json.choices?.[0]?.message?.content ?? "").trim();
+                if (text) return Response.json({ text, source: "groq", model });
+                lastStatus = 502;
+                lastBody = "Empty reply from the Groq model.";
                 continue;
               }
               lastStatus = res.status;

@@ -8,6 +8,8 @@ export type Turn = {
   answer: string;
   status: "streaming" | "done" | "error";
   error?: string;
+  /** Model that served the run (e.g. "google/gemini-3.1-pro-preview") — shown in the footer. */
+  model?: string | undefined;
 };
 
 type State = Record<string, Turn[]>;
@@ -96,8 +98,14 @@ export function clear(key: string) {
   commit(next);
 }
 
-/** Fire-and-forget: the run owns its lifecycle, not the React component. */
-export function startRun(key: string, body: StudyRequest, label?: string) {
+/** Fire-and-forget: the run owns its lifecycle, not the React component.
+ * `replace` clears the thread first — old turns stay in History (saved server-side). */
+export function startRun(
+  key: string,
+  body: StudyRequest,
+  label?: string,
+  opts?: { replace?: boolean },
+) {
   const id = crypto.randomUUID();
   const turn: Turn = {
     id,
@@ -105,11 +113,14 @@ export function startRun(key: string, body: StudyRequest, label?: string) {
     answer: "",
     status: "streaming",
   };
-  commit({ ...state, [key]: [...(state[key] ?? []), turn] });
+  commit({
+    ...state,
+    [key]: opts?.replace ? [turn] : [...(state[key] ?? []), turn],
+  });
 
   void streamStudyQuery(body, (full) => patch(key, id, { answer: full }))
-    .then((full) => {
-      patch(key, id, { answer: full, status: "done" });
+    .then(({ text, model }) => {
+      patch(key, id, { answer: text, status: "done", model });
       // The server saves the turn to history once the stream ends — tell any
       // open History panel to refresh.
       if (typeof window !== "undefined")

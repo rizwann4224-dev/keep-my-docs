@@ -3,7 +3,7 @@ import { IconButton } from './IconButton';
 import { colors, spacing, borderRadius, shadows, transitions } from './theme';
 
 interface NewNotebookCardProps {
-  onClick?: () => void;
+  onClick?: (() => void) | undefined;
 }
 
 export function NewNotebookCard({ onClick }: NewNotebookCardProps) {

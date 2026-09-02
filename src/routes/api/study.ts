@@ -9,10 +9,10 @@ import {
   insightsSystemPrompt,
   buildRelevantSourceBlock,
   markSystemPrompt,
+  MAX_CONTEXT_CHARS,
   type MarkPart,
   type Rigour,
 } from "@/lib/study-prompts";
-
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -23,9 +23,20 @@ const MODEL_CHAIN = [
   "google/gemini-2.5-flash-lite",
 ];
 
+/**
+ * Marking and challenges need the strongest reasoning available on the shared
+ * allowance: Pro-tier models first (critical evaluation of an exam script is a
+ * reasoning task, and flash models grade too generously), then the usual flash
+ * chain. The critical marking standard is carried by the prompts in
+ * study-prompts.ts; the Pro-tier model is what executes it reliably.
+ */
+const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", ...MODEL_CHAIN];
+
 /** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
 const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
 
+/** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
+const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 
 const Body = z.object({
   subjectId: z.string().uuid(),
@@ -34,17 +45,17 @@ const Body = z.object({
   userAnswer: z.string().optional(),
   parts: z.array(z.enum(["feedback", "marks", "suggested", "recommendations"])).optional(),
   rigour: z.enum(["moderate", "strict", "hard"]).optional(),
+  difficulty: z.enum(["medium", "professional", "hard"]).optional(),
   history: z
     .array(z.object({ question: z.string(), answer: z.string() }))
     .max(40)
     .optional(),
+  priorQuestions: z.array(z.string()).max(100).optional(),
   originalEvaluation: z.string().optional(),
   challengeQuery: z.string().min(1).optional(),
   originalMarks: z.number().optional(),
   maxMarks: z.number().optional(),
 });
-
-
 
 export const Route = createFileRoute("/api/study")({
   server: {
@@ -99,7 +110,6 @@ export const Route = createFileRoute("/api/study")({
             // Every marked attempt in the notebook — the diagnostic must aggregate all of them.
             .limit(500);
 
-
           if (!attempts || attempts.length === 0) {
             return new Response(
               "No marked attempts yet — answer a question in Answer & marking first.",
@@ -111,16 +121,16 @@ export const Route = createFileRoute("/api/study")({
           const retrievalQuery =
             `${data.question}\n${data.userAnswer ?? ""}` +
             (data.mode === "challenge" ? `\n${data.challengeQuery ?? ""}` : "");
-          // Marking, exam-setting and challenges only need the passages that bear
-          // on the question: a leaner context is what makes the first tokens arrive in seconds.
+          // Marking must see the WHOLE notebook — the official answer, marking
+          // guide and examiner's comments for the question can sit in any
+          // source, so mark/challenge get the maximum context budget. Exam and
+          // ask keep a leaner, relevance-ranked context for speed.
           const budget =
-            data.mode === "mark"
-              ? 250_000
+            data.mode === "mark" || data.mode === "challenge"
+              ? MAX_CONTEXT_CHARS
               : data.mode === "exam"
                 ? 300_000
-                : data.mode === "challenge"
-                  ? 150_000
-                  : 350_000;
+                : 350_000;
           const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery, budget);
           system =
             data.mode === "mark"
@@ -131,7 +141,11 @@ export const Route = createFileRoute("/api/study")({
                   (data.rigour ?? "strict") as Rigour,
                 )
               : data.mode === "exam"
-                ? examSetterSystemPrompt(sources, lessons)
+                ? examSetterSystemPrompt(
+                    sources,
+                    lessons,
+                    (data.difficulty ?? "medium") as "medium" | "professional" | "hard",
+                  )
                 : data.mode === "challenge"
                   ? challengeSystemPrompt(sources, lessons, (data.rigour ?? "strict") as Rigour)
                   : askSystemPrompt(sources, lessons);
@@ -141,12 +155,20 @@ export const Route = createFileRoute("/api/study")({
           data.mode === "insights"
             ? "Produce the performance diagnostic now."
             : data.mode === "mark"
-            ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
-            : data.mode === "exam"
-            ? `EXAM BRIEF FROM THE CANDIDATE:\n${data.question}`
-            : data.mode === "challenge"
-            ? `ORIGINAL QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ORIGINAL ANSWER:\n${data.userAnswer?.trim() || "(none provided)"}\n\nORIGINAL MARKING OUTPUT GIVEN TO CANDIDATE:\n${data.originalEvaluation?.trim() || "(not provided)"}\n\nORIGINAL MARKS AWARDED: ${data.originalMarks ?? "unknown"} / ${data.maxMarks ?? "unknown"}\n\nCANDIDATE'S CHALLENGE / QUERY:\n${data.challengeQuery?.trim() || ""}`
-            : data.question;
+              ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
+              : data.mode === "exam"
+                ? `EXAM BRIEF FROM THE CANDIDATE:\n${data.question}${
+                    (data.priorQuestions ?? []).filter((q) => q.trim().length > 0).length
+                      ? `\n\nQUESTION LEDGER — questions already set for this notebook (NEVER repeat any of these, and never reuse their scenario, entity, facts, figures or testing angle):\n${data
+                          .priorQuestions!.filter((q) => q.trim().length > 0)
+                          .slice(-50)
+                          .map((q, i) => `${i + 1}. ${q.trim()}`)
+                          .join("\n")}`
+                      : ""
+                  }`
+                : data.mode === "challenge"
+                  ? `ORIGINAL QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ORIGINAL ANSWER:\n${data.userAnswer?.trim() || "(none provided)"}\n\nORIGINAL MARKING OUTPUT GIVEN TO CANDIDATE:\n${data.originalEvaluation?.trim() || "(not provided)"}\n\nORIGINAL MARKS AWARDED: ${data.originalMarks ?? "unknown"} / ${data.maxMarks ?? "unknown"}\n\nCANDIDATE'S CHALLENGE / QUERY:\n${data.challengeQuery?.trim() || ""}`
+                  : data.question;
 
         // Ask mode keeps the thread's earlier turns so follow-ups ("and for the
         // next year?", "rephrase that") resolve against the previous question.
@@ -158,11 +180,18 @@ export const Route = createFileRoute("/api/study")({
               ])
             : [];
 
-
         let upstream: Response | null = null;
-        let source: "gateway" | "google" = "gateway";
+        let source: "gateway" | "google" | "groq" = "gateway";
+        let servedModel = "";
         let lastStatus = 0;
-        for (const model of MODEL_CHAIN) {
+
+        // Marking and challenges run on the Pro-tier chain — critical
+        // evaluation of an exam script is a reasoning task, and the marking
+        // prompts' critical standard needs the strongest model to execute
+        // it. Other modes keep the fast flash chain.
+        const chain =
+          data.mode === "mark" || data.mode === "challenge" ? MODEL_CHAIN_MARK : MODEL_CHAIN;
+        for (const model of chain) {
           const res = await fetch(GATEWAY, {
             method: "POST",
             headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -181,6 +210,7 @@ export const Route = createFileRoute("/api/study")({
           lastStatus = res.status;
           if (res.ok && res.body) {
             upstream = res;
+            servedModel = model;
             break;
           }
           // Budget or rate limit on this model — try the next, cheaper one.
@@ -218,6 +248,46 @@ export const Route = createFileRoute("/api/study")({
               if (res.ok && res.body) {
                 upstream = res;
                 source = "google";
+                servedModel = model;
+                break;
+              }
+              lastStatus = res.status;
+              await res.body?.cancel();
+              if (res.status !== 429 && res.status !== 503) break;
+              await new Promise((r) => setTimeout(r, 800));
+            }
+          }
+        }
+
+        // Google key also exhausted — final fallback to the project's Groq key.
+        // Groq speaks the same OpenAI-style SSE shape as the gateway, so the
+        // stream parser below handles it unchanged.
+        if (!upstream) {
+          const groqKey = process.env["GROQ_API_KEY"];
+          if (groqKey) {
+            for (const model of GROQ_MODEL_CHAIN) {
+              const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${groqKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model,
+                  temperature: 0,
+                  top_p: 0.1,
+                  stream: true,
+                  messages: [
+                    { role: "system", content: system },
+                    ...priorMessages,
+                    { role: "user", content: userContent },
+                  ],
+                }),
+              });
+              if (res.ok && res.body) {
+                upstream = res;
+                source = "groq";
+                servedModel = model;
                 break;
               }
               lastStatus = res.status;
@@ -300,9 +370,11 @@ export const Route = createFileRoute("/api/study")({
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",
+            // Which model actually served the run (google/gemini-…, groq/…) —
+            // surfaced in the answer footer so the user can see it.
+            "X-Study-Model": servedModel,
           },
         });
-
       },
     },
   },
