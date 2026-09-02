@@ -9,6 +9,24 @@ export type AskExport = {
   turns: { question: string; answer: string }[];
 };
 
+/** A single history entry selected for export. */
+export type HistoryExportEntry = {
+  /** Short label, e.g. "XYZ Limited (Audit reporting)". */
+  title: string;
+  /** The full detailed question / scenario. */
+  question: string;
+  /** The answer / marking output. */
+  answer: string;
+  date?: string;
+};
+
+export type HistoryExport = {
+  notebook: string;
+  /** Heading suffix, e.g. "Ask history" or "Marking history". */
+  title?: string;
+  entries: HistoryExportEntry[];
+};
+
 const MARGIN = 56;
 const PAGE_W = 595.28; // A4 portrait, pt
 const PAGE_H = 841.89;
@@ -324,4 +342,184 @@ export function exportInsightsToPdf(markdown: string, fallbackName = "performanc
   });
 
   doc.save(`${fallbackName}.pdf`);
+}
+
+/**
+ * History export: one section per selected entry — the title, the full detailed
+ * question, then the complete answer/marking output.
+ */
+export function exportHistoryToPdf(data: HistoryExport) {
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  let y = MARGIN;
+
+  const space = (needed: number) => {
+    if (y + needed > PAGE_H - MARGIN) {
+      doc.addPage();
+      y = MARGIN;
+    }
+  };
+
+  const write = (
+    text: string,
+    opts: {
+      size?: number;
+      style?: "normal" | "bold" | "italic";
+      gap?: number;
+      color?: [number, number, number];
+      indent?: number;
+    } = {},
+  ) => {
+    const size = opts.size ?? 11;
+    const indent = opts.indent ?? 0;
+    doc.setFont("helvetica", opts.style ?? "normal");
+    doc.setFontSize(size);
+    const [r, g, b] = opts.color ?? INK;
+    doc.setTextColor(r, g, b);
+    const lines = doc.splitTextToSize(text, WIDTH - indent) as string[];
+    const lh = size * 1.42;
+    for (const line of lines) {
+      space(lh);
+      doc.text(line, MARGIN + indent, y);
+      y += lh;
+    }
+    y += opts.gap ?? 6;
+  };
+
+  const table = (rows: string[][]) => {
+    if (rows.length === 0) return;
+    const columns = Math.max(...rows.map((r) => r.length));
+    const colW = WIDTH / columns;
+    const size = 10;
+    const lh = size * 1.3;
+
+    rows.forEach((cells, rowIndex) => {
+      doc.setFont("helvetica", rowIndex === 0 ? "bold" : "normal");
+      doc.setFontSize(size);
+      const wrapped = Array.from(
+        { length: columns },
+        (_, i) => doc.splitTextToSize(cells[i] ?? "", colW - 12) as string[],
+      );
+      const height = Math.max(...wrapped.map((w) => w.length)) * lh + 8;
+      space(height);
+      if (rowIndex === 0) {
+        doc.setFillColor(237, 241, 247);
+        doc.rect(MARGIN, y - 2, WIDTH, height, "F");
+      }
+      doc.setDrawColor(205, 210, 220);
+      doc.setLineWidth(0.5);
+      for (let i = 0; i < columns; i++) doc.rect(MARGIN + i * colW, y - 2, colW, height);
+      doc.setTextColor(INK[0], INK[1], INK[2]);
+      wrapped.forEach((lines, i) => {
+        lines.forEach((line, li) => {
+          doc.text(line, MARGIN + i * colW + 6, y + 10 + li * lh);
+        });
+      });
+      y += height;
+    });
+    y += 10;
+  };
+
+  // Cover band
+  doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+  doc.rect(0, 0, PAGE_W, 92, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(255, 255, 255);
+  doc.text(data.title ?? "History", MARGIN, 44);
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(11);
+  doc.setTextColor(214, 222, 238);
+  doc.text(data.notebook, MARGIN, 64);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(
+    new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
+    PAGE_W - MARGIN,
+    64,
+    { align: "right" },
+  );
+  y = 92 + 30;
+
+  data.entries.forEach((entry, index) => {
+    space(26);
+    write(`${index + 1}. ${plain(entry.title)}`, {
+      size: 13,
+      style: "bold",
+      color: ACCENT,
+      gap: 2,
+    });
+    if (entry.date) {
+      write(entry.date, { size: 9, style: "italic", color: [82, 101, 122], gap: 8 });
+    }
+
+    write("Question", { size: 11, style: "bold", gap: 2 });
+    for (const raw of plain(entry.question).split("\n")) {
+      const line = raw.trim();
+      if (line) write(line, { size: 11, gap: 2 });
+    }
+
+    space(6);
+    write("Answer", { size: 11, style: "bold", gap: 2 });
+
+    const lines = entry.answer.replace(/\r/g, "").split("\n");
+    let i = 0;
+    while (i < lines.length) {
+      const line = (lines[i] ?? "").trim();
+      if (!line) {
+        i += 1;
+        continue;
+      }
+      if (line.startsWith("|")) {
+        const rows: string[][] = [];
+        while (i < lines.length && (lines[i] ?? "").trim().startsWith("|")) {
+          const cells = splitRow(lines[i] ?? "");
+          if (!isDivider(cells)) rows.push(cells);
+          i += 1;
+        }
+        table(rows);
+        continue;
+      }
+      const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+      if (heading) {
+        space(20);
+        write(plain(heading[2] ?? ""), {
+          size: (heading[1]?.length ?? 1) <= 2 ? 13 : 12,
+          style: "bold",
+          color: ACCENT,
+          gap: 4,
+        });
+        i += 1;
+        continue;
+      }
+      const bullet = /^[-*•]\s+(.*)$/.exec(line);
+      if (bullet) {
+        write(`•  ${plain(bullet[1] ?? "")}`, { size: 11, gap: 2, indent: 14 });
+        i += 1;
+        continue;
+      }
+      const numbered = /^(\d+[.)])\s+(.*)$/.exec(line);
+      if (numbered) {
+        write(`${numbered[1]}  ${plain(numbered[2] ?? "")}`, { size: 11, gap: 2, indent: 14 });
+        i += 1;
+        continue;
+      }
+      write(plain(line), { size: 11, gap: 6 });
+      i += 1;
+    }
+
+    y += 8;
+    space(12);
+    doc.setDrawColor(214, 218, 226);
+    doc.setLineWidth(0.6);
+    doc.line(MARGIN, y, PAGE_W - MARGIN, y);
+    y += 18;
+  });
+
+  const fallback =
+    data.notebook
+      .replace(/[^\w-]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .toLowerCase() || "history";
+  const name = fileNameFromQuestion(data.entries[0]?.title ?? "", `${fallback}-history`);
+  doc.save(`${name}.pdf`);
 }

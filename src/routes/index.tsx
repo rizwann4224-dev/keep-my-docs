@@ -203,8 +203,12 @@ function WorkspacePage() {
             {tab === "performance" && <PerformancePanel subjectId={active.id} />}
             {tab === "documents" && <DocumentsPanel subjectId={active.id} userId={user.id} />}
             {tab === "lessons" && <LessonsPanel subjectId={active.id} />}
-            {tab === "history" && <HistoryPanel subjectId={active.id} mode="ask" />}
-            {tab === "mark-history" && <HistoryPanel subjectId={active.id} mode="mark" />}
+            {tab === "history" && (
+              <HistoryPanel subjectId={active.id} mode="ask" subjectName={active.name} />
+            )}
+            {tab === "mark-history" && (
+              <HistoryPanel subjectId={active.id} mode="mark" subjectName={active.name} />
+            )}
           </div>
         </main>
       </div>

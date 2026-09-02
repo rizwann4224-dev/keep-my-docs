@@ -14,7 +14,7 @@ import {
   TextRun,
   WidthType,
 } from "docx";
-import { fileNameFromQuestion } from "@/lib/export-pdf";
+import { fileNameFromQuestion, type HistoryExport } from "@/lib/export-pdf";
 
 const CONTENT_WIDTH = 9360;
 
@@ -469,6 +469,179 @@ export async function exportInsightsToWord(markdown: string, fileName = "perform
   const a = document.createElement("a");
   a.href = url;
   a.download = `${fileName}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/**
+ * History export: one section per selected entry — the title, the full detailed
+ * question, then the complete answer/marking output.
+ */
+export async function exportHistoryToWord(data: HistoryExport) {
+  const dated = new Date().toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+
+  const children: (Paragraph | Table)[] = [
+    new Table({
+      width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+      columnWidths: [CONTENT_WIDTH],
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              borders: {
+                top: { style: BorderStyle.NONE, size: 0, color: "1F3864" },
+                bottom: { style: BorderStyle.NONE, size: 0, color: "1F3864" },
+                left: { style: BorderStyle.NONE, size: 0, color: "1F3864" },
+                right: { style: BorderStyle.NONE, size: 0, color: "1F3864" },
+              },
+              width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+              margins: { top: 220, bottom: 220, left: 220, right: 220 },
+              shading: { fill: "1F3864", type: ShadingType.CLEAR, color: "auto" },
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: data.title ?? "History",
+                      bold: true,
+                      size: 34,
+                      color: "FFFFFF",
+                    }),
+                  ],
+                }),
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: `${data.notebook}  ·  ${data.entries.length} selected entr${data.entries.length === 1 ? "y" : "ies"}`,
+                      italics: true,
+                      size: 20,
+                      color: "D6DEEE",
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    }),
+    new Paragraph({ spacing: { after: 160 }, children: [new TextRun("")] }),
+    infoTable([
+      ["Notebook", data.notebook],
+      ["Generated", dated],
+      ["Entries exported", String(data.entries.length)],
+    ]),
+    new Paragraph({ children: [new TextRun("")] }),
+  ];
+
+  data.entries.forEach((entry, index) => {
+    children.push(
+      new Paragraph({
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 240 },
+        children: [new TextRun({ text: `${index + 1}. ${entry.title}` })],
+      }),
+    );
+    if (entry.date) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: entry.date, italics: true, size: 18, color: "52657A" })],
+        }),
+      );
+    }
+    children.push(sectionHeading("Question"), ...labelledBlock(entry.question));
+    children.push(sectionHeading("Answer"), ...labelledBlock(entry.answer));
+  });
+
+  const doc = new Document({
+    styles: {
+      default: { document: { run: { font: "Times New Roman", size: 22 } } },
+      paragraphStyles: [
+        {
+          id: "Heading1",
+          name: "Heading 1",
+          basedOn: "Normal",
+          next: "Normal",
+          quickFormat: true,
+          run: { size: 32, bold: true, font: "Times New Roman" },
+          paragraph: { spacing: { before: 240, after: 200 }, outlineLevel: 0 },
+        },
+        {
+          id: "Heading2",
+          name: "Heading 2",
+          basedOn: "Normal",
+          next: "Normal",
+          quickFormat: true,
+          run: { size: 26, bold: true, font: "Times New Roman", color: "1F3864" },
+          paragraph: { spacing: { before: 280, after: 140 }, outlineLevel: 1 },
+        },
+        {
+          id: "Heading3",
+          name: "Heading 3",
+          basedOn: "Normal",
+          next: "Normal",
+          quickFormat: true,
+          run: { size: 23, bold: true, font: "Times New Roman" },
+          paragraph: { spacing: { before: 200, after: 100 }, outlineLevel: 2 },
+        },
+      ],
+    },
+    numbering: {
+      config: [
+        {
+          reference: "bullets",
+          levels: [
+            {
+              level: 0,
+              format: LevelFormat.BULLET,
+              text: "•",
+              alignment: AlignmentType.LEFT,
+              style: { paragraph: { indent: { left: 720, hanging: 360 } } },
+            },
+          ],
+        },
+        {
+          reference: "numbers",
+          levels: [
+            {
+              level: 0,
+              format: LevelFormat.DECIMAL,
+              text: "%1.",
+              alignment: AlignmentType.LEFT,
+              style: { paragraph: { indent: { left: 720, hanging: 360 } } },
+            },
+          ],
+        },
+      ],
+    },
+    sections: [
+      {
+        properties: {
+          page: {
+            size: { width: 12240, height: 15840 },
+            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          },
+        },
+        children,
+      },
+    ],
+  });
+
+  const blob = await Packer.toBlob(doc);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const fallback =
+    data.notebook
+      .replace(/[^\w\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .toLowerCase() || "history";
+  a.download = `${fileNameFromQuestion(data.entries[0]?.title ?? "", fallback)}.docx`;
   document.body.appendChild(a);
   a.click();
   a.remove();

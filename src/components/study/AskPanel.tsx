@@ -5,11 +5,18 @@ import { FileText, Sparkles } from "lucide-react";
 import * as jobs from "@/lib/study-jobs";
 import { supabase } from "@/integrations/supabase/client";
 import { exportAskToPdf } from "@/lib/export-pdf";
+import type { ExamDifficulty } from "@/lib/study-prompts";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { LessonCapture } from "@/components/study/LessonCapture";
 import { ThinkingStatus } from "@/components/study/ThinkingStatus";
 import { AnswerCard } from "@/components/study/AnswerCard";
+
+const DIFFICULTIES: { id: ExamDifficulty; label: string; hint: string }[] = [
+  { id: "medium", label: "Medium", hint: "Standard ICAP professional level" },
+  { id: "professional", label: "Professional", hint: "Strict ICAP formatting, no hints" },
+  { id: "hard", label: "Hard", hint: "Very hard — ~20% pass level" },
+];
 
 export function AskPanel({
   subjectId,
@@ -21,6 +28,7 @@ export function AskPanel({
   const [tab, setTab] = useState<"general" | "question">("general");
   const [question, setQuestion] = useState("");
   const [answerLength, setAnswerLength] = useState<"short" | "medium" | "long">("medium");
+  const [difficulty, setDifficulty] = useState<ExamDifficulty>("medium");
   const isExam = tab === "question";
   const key = `${subjectId}:${isExam ? "exam" : "ask"}`;
 
@@ -39,7 +47,8 @@ export function AskPanel({
         .eq("subject_id", subjectId)
         .eq("mode", isExam ? "exam" : "ask")
         .order("created_at", { ascending: false })
-        .limit(6);
+        // Exam mode needs a long memory so previously-set questions are never repeated.
+        .limit(isExam ? 50 : 6);
       if (error) throw error;
       return (data ?? []).reverse() as { question: string; response: string }[];
     },
@@ -72,14 +81,21 @@ export function AskPanel({
       !isExam && answerLength === "short"
         ? "\n\n[Answer format: VERY SHORT — the direct answer only in 1–3 lines. No headings, no extra explanation.]"
         : !isExam && answerLength === "long"
-          ? "\n\n[Answer format: LONG — a thorough answer with full explanation, structure, and references to the sources. Still lead with the direct answer.]"
+          ? '\n\n[Answer format: LONG — a thorough answer with full explanation, structure, and references to the sources. Still lead with the direct answer. End with exactly ONE worked practical example (labelled "Practical example:") that applies the rule to realistic figures, using source figures where possible.]'
           : "";
+    // Questions already set for this notebook (live thread + saved history) so the
+    // exam setter never repeats one.
+    const priorQuestions = Array.from(
+      new Set([...saved.map((entry) => entry.question), ...live.map((t) => t.question)]),
+    ).filter((q) => q.trim().length > 0);
     jobs.startRun(
       key,
       {
         subjectId,
         mode: isExam ? "exam" : "ask",
         question: q + directive,
+        difficulty: isExam ? difficulty : undefined,
+        priorQuestions: isExam ? priorQuestions : undefined,
         history: [...past, ...live],
       },
       q,
@@ -141,6 +157,33 @@ export function AskPanel({
           );
         })}
       </div>
+
+      {isExam && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground">Difficulty:</span>
+          <div className="flex flex-wrap gap-2">
+            {DIFFICULTIES.map((option) => {
+              const active = difficulty === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setDifficulty(option.id)}
+                  className={`rounded-lg border px-3 py-1.5 text-left transition-colors ${
+                    active
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-border text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <span className="block text-sm font-semibold">{option.label}</span>
+                  <span className="block text-xs text-muted-foreground">{option.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {!isExam && (
         <div className="flex flex-wrap items-center gap-2">
