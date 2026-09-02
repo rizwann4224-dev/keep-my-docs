@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { Bell, CheckCircle2, ClipboardCheck, FileText, LineChart, Sparkles } from "lucide-react";
 import * as jobs from "@/lib/study-jobs";
@@ -110,13 +110,17 @@ export function MarkPanel({ subjectId, subjectName }: { subjectId: string; subje
     return null;
   }
 
-  // Update markData when response arrives
-  if (latest?.status === "done" && latest.answer && hasMarks && !markData) {
-    const extracted = extractMarksFromResponse(latest.answer);
-    if (extracted) {
-      setMarkData(extracted);
+  // Update markData when a finished marking response arrives.
+  useEffect(() => {
+    if (!hasMarks) {
+      setMarkData(null);
+      return;
     }
-  }
+    if (latest?.status !== "done" || !latest.answer) return;
+
+    const extracted = extractMarksFromResponse(latest.answer);
+    setMarkData(extracted);
+  }, [latest?.status, latest?.answer, hasMarks]);
 
   const canGenerate =
     !running &&
