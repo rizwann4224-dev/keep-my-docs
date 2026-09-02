@@ -99,6 +99,8 @@ export function AskPanel({
         history: [...past, ...live],
       },
       q,
+      // Fresh thread per query — previous Q&As are kept in the History tab.
+      { replace: true },
     );
     setQuestion("");
     toast.info("Working — you can switch tabs, the answer keeps generating.");
