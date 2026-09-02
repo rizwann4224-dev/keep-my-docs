@@ -24,7 +24,10 @@ for (const rigour of ["moderate", "strict", "hard"] as const) {
   check(`${rigour}: worked calibration example present`, prompt.includes("CALIBRATION EXAMPLE"));
   check(`${rigour}: adversarial re-read step present`, prompt.includes("ADVERSARIAL RE-READ"));
   check(`${rigour}: source sweep (all sources) present`, prompt.includes("SOURCE SWEEP FIRST"));
-  check(`${rigour}: Claude-style marker behaviour present`, prompt.includes("MARK LIKE CLAUDE"));
+  check(
+    `${rigour}: sceptical-examiner behaviour present`,
+    prompt.includes("THE SCEPTICAL EXAMINER"),
+  );
   check(
     `${rigour}: severity declared to the model`,
     prompt.includes(`Severity: ${rigour.toUpperCase()}`),
@@ -45,7 +48,7 @@ check(
 const challenge = challengeSystemPrompt(sources, "None recorded yet.", "strict");
 check("challenge: evidence rule carried over", challenge.includes("EVIDENCE RULE"));
 check("challenge: calibration anchors carried over", challenge.includes("CALIBRATION ANCHORS"));
-check("challenge: marker behaviour carried over", challenge.includes("MARK LIKE CLAUDE"));
+check("challenge: marker behaviour carried over", challenge.includes("THE SCEPTICAL EXAMINER"));
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) FAILED`);

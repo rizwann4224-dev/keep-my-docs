@@ -1,11 +1,11 @@
 # Marking model & severity
 
 Which model marks an answer, and how marking is kept as critical as a real
-examiner — the "Claude standard" — without any external API key.
+examiner — with no external API key and no third-party model connection.
 
 ## Model chain — marking & challenge
 
-Tried in order; the first that responds serves the request. No extra keys needed:
+Tried in order; the first that responds serves the request. Nothing to configure:
 
 1. **Lovable gateway, Pro tier** — `google/gemini-3.1-pro-preview`, then
    `google/gemini-2.5-pro`.
@@ -16,17 +16,19 @@ Tried in order; the first that responds serves the request. No extra keys needed
 Ask / exam / insights modes keep the flash chain for speed. The model that
 served each answer is shown in the answer footer ("Model: …").
 
-## Behaving like Claude without a Claude key
+## How the marking got critical (no new keys, no new providers)
 
-The Lovable AI gateway offers only Google and OpenAI models, so the Claude-style
-marking quality is achieved by behaviour and model tier, not model brand:
+Marking used to come out far too generous: a weak, generic answer could score
+~80% where a real examiner would award ~45%. That is fixed inside the marking
+prompt itself, and by using the strongest reasoning model on the existing
+gateway:
 
 - **Pro-tier models mark** — critical evaluation of an exam script is a
   reasoning task; flash models grade too generously.
-- **MARKER BEHAVIOUR — MARK LIKE CLAUDE** — the marking prompt installs the
-  marker's working personality: a sceptical verifier (not an encourager), zero
-  sycophancy, verify-don't-assume, comfort with low marks, no halo effect, and
-  every criticism naming the exact gap.
+- **MARKER BEHAVIOUR — THE SCEPTICAL EXAMINER** — the marking prompt installs
+  the marker's working personality: a sceptical verifier (not an encourager),
+  zero sycophancy, verify-don't-assume, comfort with low marks, no halo effect,
+  and every criticism naming the exact gap.
 - **Evidence rule** — a point is credited only when the marker can quote the
   candidate's exact words that earn it; otherwise it scores zero.
 - **Calibration anchors + worked example** — a broadly-correct-but-generic

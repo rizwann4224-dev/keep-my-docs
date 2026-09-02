@@ -27,7 +27,7 @@ const MODEL_CHAIN = [
  * Marking and challenges need the strongest reasoning available on the shared
  * allowance: Pro-tier models first (critical evaluation of an exam script is a
  * reasoning task, and flash models grade too generously), then the usual flash
- * chain. The Claude-style critical standard is carried by the prompts in
+ * chain. The critical marking standard is carried by the prompts in
  * study-prompts.ts; the Pro-tier model is what executes it reliably.
  */
 const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", ...MODEL_CHAIN];
@@ -187,7 +187,7 @@ export const Route = createFileRoute("/api/study")({
 
         // Marking and challenges run on the Pro-tier chain — critical
         // evaluation of an exam script is a reasoning task, and the marking
-        // prompts' Claude-style standard needs the strongest model to execute
+        // prompts' critical standard needs the strongest model to execute
         // it. Other modes keep the fast flash chain.
         const chain =
           data.mode === "mark" || data.mode === "challenge" ? MODEL_CHAIN_MARK : MODEL_CHAIN;

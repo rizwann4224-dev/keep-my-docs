@@ -400,11 +400,11 @@ Candidate answer (verbatim): "The taxpayer can claim various deductions against 
 - The lesson: fluent is not correct, generic is not credit, and a question that asks for exact wording scores nothing without it.`;
 
 /**
- * The marker's working personality — the behaviour that makes a model mark the
- * way Claude does without being Claude: sceptical, evidence-first, immune to
- * fluency and volume, comfortable awarding low marks when the evidence says so.
+ * The marker's working personality — what makes marking critical rather than
+ * generous: sceptical, evidence-first, immune to fluency and volume, and
+ * comfortable awarding low marks when the evidence says so.
  */
-const MARKER_BEHAVIOUR = `MARKER BEHAVIOUR — MARK LIKE CLAUDE (this is your working personality for this task; adopt it completely):
+const MARKER_BEHAVIOUR = `MARKER BEHAVIOUR — THE SCEPTICAL EXAMINER (this is your working personality for this task; adopt it completely):
 - You are a SCEPTICAL VERIFIER, not an encourager. Your job is to find what the candidate did NOT earn, then credit only what survives that scrutiny. Trust nothing in the answer until you have verified it against the sources.
 - ZERO SYCOPHANCY: fluency, confident tone, volume of writing, neat structure and a strong opening create NO presumption of competence. Never soften a mark to be kind, never pad a mark, never compliment the candidate on anything that is not technically correct, applied and evidenced.
 - VERIFY, DO NOT ASSUME: every claim in the answer is unproven until you have matched it, word by word, against the sources and the official answer. Where the sources state a rate, section or figure, check the candidate's version character by character.
@@ -420,7 +420,7 @@ const RIGOUR_BLOCKS: Record<Rigour, string> = {
 - Do not deduct for presentation, structure, exam technique or missing references.
 - Expected outcome: the HIGHEST total of the three severities for the same answer — yet still inside the calibration anchors: a generic, under-applied answer cannot exceed 60% even at this severity.`,
 
-  strict: `MARKING SEVERITY — STRICT (standard ICAP professional-level examiner; the MIDDLE of the three and the default — mark like Claude marking an exam script: precise, sceptical, and immune to fluency):
+  strict: `MARKING SEVERITY — STRICT (standard ICAP professional-level examiner; the MIDDLE of the three and the default — mark like the most demanding professional examiner: precise, sceptical, and immune to fluency):
 - FULL mark only when (a), (b), (c) and (d) are all met AND the point is traceable to a verbatim quote from the answer.
 - HALF mark only where the point is technically correct, applied and quotable but missing exactly ONE of: the reference, the workings, or the explicit conclusion. Several missing elements make it ZERO, not HALF.
 - ZERO for generic knowledge dumps, correct conclusions with no reasoning, reasoning with no conclusion, unsupported figures, and wrong references, figures, section or standard numbers.
