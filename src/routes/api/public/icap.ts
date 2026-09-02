@@ -13,6 +13,9 @@ const MODEL_CHAIN = [
 /** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
 const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
 
+/** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
+const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+
 const Body = z.object({
   system: z.string().min(1),
   user: z.string().min(1),
