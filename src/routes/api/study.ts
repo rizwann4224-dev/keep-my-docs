@@ -13,7 +13,6 @@ import {
   type Rigour,
 } from "@/lib/study-prompts";
 
-
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 /** Tried in order — if the budget for one model is exhausted, fall back to a cheaper one. */
@@ -26,7 +25,6 @@ const MODEL_CHAIN = [
 /** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
 const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
 
-
 const Body = z.object({
   subjectId: z.string().uuid(),
   mode: z.enum(["ask", "mark", "insights", "exam", "challenge"]),
@@ -34,17 +32,17 @@ const Body = z.object({
   userAnswer: z.string().optional(),
   parts: z.array(z.enum(["feedback", "marks", "suggested", "recommendations"])).optional(),
   rigour: z.enum(["moderate", "strict", "hard"]).optional(),
+  difficulty: z.enum(["medium", "professional", "hard"]).optional(),
   history: z
     .array(z.object({ question: z.string(), answer: z.string() }))
     .max(40)
     .optional(),
+  priorQuestions: z.array(z.string()).max(100).optional(),
   originalEvaluation: z.string().optional(),
   challengeQuery: z.string().min(1).optional(),
   originalMarks: z.number().optional(),
   maxMarks: z.number().optional(),
 });
-
-
 
 export const Route = createFileRoute("/api/study")({
   server: {
@@ -99,7 +97,6 @@ export const Route = createFileRoute("/api/study")({
             // Every marked attempt in the notebook — the diagnostic must aggregate all of them.
             .limit(500);
 
-
           if (!attempts || attempts.length === 0) {
             return new Response(
               "No marked attempts yet — answer a question in Answer & marking first.",
@@ -131,7 +128,11 @@ export const Route = createFileRoute("/api/study")({
                   (data.rigour ?? "strict") as Rigour,
                 )
               : data.mode === "exam"
-                ? examSetterSystemPrompt(sources, lessons)
+                ? examSetterSystemPrompt(
+                    sources,
+                    lessons,
+                    (data.difficulty ?? "medium") as "medium" | "professional" | "hard",
+                  )
                 : data.mode === "challenge"
                   ? challengeSystemPrompt(sources, lessons, (data.rigour ?? "strict") as Rigour)
                   : askSystemPrompt(sources, lessons);
@@ -141,12 +142,20 @@ export const Route = createFileRoute("/api/study")({
           data.mode === "insights"
             ? "Produce the performance diagnostic now."
             : data.mode === "mark"
-            ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
-            : data.mode === "exam"
-            ? `EXAM BRIEF FROM THE CANDIDATE:\n${data.question}`
-            : data.mode === "challenge"
-            ? `ORIGINAL QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ORIGINAL ANSWER:\n${data.userAnswer?.trim() || "(none provided)"}\n\nORIGINAL MARKING OUTPUT GIVEN TO CANDIDATE:\n${data.originalEvaluation?.trim() || "(not provided)"}\n\nORIGINAL MARKS AWARDED: ${data.originalMarks ?? "unknown"} / ${data.maxMarks ?? "unknown"}\n\nCANDIDATE'S CHALLENGE / QUERY:\n${data.challengeQuery?.trim() || ""}`
-            : data.question;
+              ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
+              : data.mode === "exam"
+                ? `EXAM BRIEF FROM THE CANDIDATE:\n${data.question}${
+                    (data.priorQuestions ?? []).filter((q) => q.trim().length > 0).length
+                      ? `\n\nQUESTION LEDGER — questions already set for this notebook (NEVER repeat any of these, and never reuse their scenario, entity, facts, figures or testing angle):\n${data
+                          .priorQuestions!.filter((q) => q.trim().length > 0)
+                          .slice(-50)
+                          .map((q, i) => `${i + 1}. ${q.trim()}`)
+                          .join("\n")}`
+                      : ""
+                  }`
+                : data.mode === "challenge"
+                  ? `ORIGINAL QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ORIGINAL ANSWER:\n${data.userAnswer?.trim() || "(none provided)"}\n\nORIGINAL MARKING OUTPUT GIVEN TO CANDIDATE:\n${data.originalEvaluation?.trim() || "(not provided)"}\n\nORIGINAL MARKS AWARDED: ${data.originalMarks ?? "unknown"} / ${data.maxMarks ?? "unknown"}\n\nCANDIDATE'S CHALLENGE / QUERY:\n${data.challengeQuery?.trim() || ""}`
+                  : data.question;
 
         // Ask mode keeps the thread's earlier turns so follow-ups ("and for the
         // next year?", "rephrase that") resolve against the previous question.
@@ -157,7 +166,6 @@ export const Route = createFileRoute("/api/study")({
                 { role: "assistant" as const, content: turn.answer.slice(0, 4000) },
               ])
             : [];
-
 
         let upstream: Response | null = null;
         let source: "gateway" | "google" = "gateway";
@@ -302,7 +310,6 @@ export const Route = createFileRoute("/api/study")({
             "X-Accel-Buffering": "no",
           },
         });
-
       },
     },
   },

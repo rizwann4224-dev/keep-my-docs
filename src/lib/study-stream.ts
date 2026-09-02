@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { MarkPart, Rigour } from "@/lib/study-prompts";
+import type { ExamDifficulty, MarkPart, Rigour } from "@/lib/study-prompts";
 
 export type StudyRequest = {
   subjectId: string;
@@ -9,8 +9,12 @@ export type StudyRequest = {
   parts?: MarkPart[] | undefined;
   /** Marking severity for mark/challenge mode. */
   rigour?: Rigour | undefined;
+  /** Exam-setter difficulty (exam mode only). */
+  difficulty?: ExamDifficulty | undefined;
   /** Prior turns in this Ask thread, so follow-up questions keep their context. */
   history?: { question: string; answer: string }[] | undefined;
+  /** Questions already set for this notebook (exam mode) — never repeat these. */
+  priorQuestions?: string[] | undefined;
   /** Challenge mode only. */
   originalEvaluation?: string | undefined;
   challengeQuery?: string | undefined;
