@@ -31,7 +31,7 @@ const OPTIONS: { id: MarkPart; label: string; hint: string; icon: typeof FileTex
 
 const RIGOURS: { id: Rigour; label: string; hint: string }[] = [
   { id: "moderate", label: "Moderate", hint: "Credit for correct substance" },
-  { id: "strict", label: "Strict", hint: "Standard ICAP examiner" },
+  { id: "strict", label: "Strict", hint: "Critical examiner — evidence or zero" },
   { id: "hard", label: "Hard / difficult", hint: "Distinction standard, no benefit of the doubt" },
 ];
 

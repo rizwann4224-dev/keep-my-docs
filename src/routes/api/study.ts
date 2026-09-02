@@ -27,12 +27,10 @@ const MODEL_CHAIN = [
  * Marking and challenges need the strongest reasoning available on the shared
  * allowance: Pro-tier models first (critical evaluation of an exam script is a
  * reasoning task, and flash models grade too generously), then the usual flash
- * chain. When an Anthropic key is configured, Claude takes priority instead —
- * see the ANTHROPIC path in the handler.
+ * chain. The Claude-style critical standard is carried by the prompts in
+ * study-prompts.ts; the Pro-tier model is what executes it reliably.
  */
 const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", ...MODEL_CHAIN];
-/** Claude models for marking/challenges, tried in order via the Anthropic API. */
-const ANTHROPIC_CHAIN = ["claude-sonnet-4-6", "claude-opus-4-8"];
 
 /** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
 const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
@@ -102,9 +100,6 @@ export const Route = createFileRoute("/api/study")({
         const lessons = buildLessonsBlock(notes ?? []);
 
         let system: string;
-        // Same prompt rebuilt for Claude when the notebook is too large for its
-        // tighter context window — see the Anthropic path below.
-        let claudeSystem: string | undefined;
         if (data.mode === "insights") {
           const { data: attempts } = await supabase
             .from("qa_entries")
@@ -154,24 +149,6 @@ export const Route = createFileRoute("/api/study")({
                 : data.mode === "challenge"
                   ? challengeSystemPrompt(sources, lessons, (data.rigour ?? "strict") as Rigour)
                   : askSystemPrompt(sources, lessons);
-
-          // Claude's context window is tighter than Gemini's 1M tokens: for very
-          // large notebooks rebuild the source block at a reduced budget so the
-          // Anthropic request still fits. The keyword ranking keeps the passages
-          // that matter for marking (official answers, examiner comments, rates).
-          claudeSystem = system;
-          if ((data.mode === "mark" || data.mode === "challenge") && system.length > 400_000) {
-            const lean = buildRelevantSourceBlock(docs ?? [], retrievalQuery, 340_000);
-            claudeSystem =
-              data.mode === "mark"
-                ? markSystemPrompt(
-                    lean,
-                    lessons,
-                    (data.parts ?? []) as MarkPart[],
-                    (data.rigour ?? "strict") as Rigour,
-                  )
-                : challengeSystemPrompt(lean, lessons, (data.rigour ?? "strict") as Rigour);
-          }
         }
 
         const userContent =
@@ -204,87 +181,42 @@ export const Route = createFileRoute("/api/study")({
             : [];
 
         let upstream: Response | null = null;
-        let source: "anthropic" | "gateway" | "google" | "groq" = "gateway";
+        let source: "gateway" | "google" | "groq" = "gateway";
         let servedModel = "";
         let lastStatus = 0;
 
-        // Claude first for marking and challenges: when an Anthropic key is
-        // configured the evaluation runs on Claude (streaming Messages API),
-        // which is the critical marking standard the user asked for. Any failure
-        // (missing/invalid key, rate limit, oversized request) falls through to
-        // the shared gateway chain below, so marking never dead-ends.
-        const anthropicKey = process.env["ANTHROPIC_API_KEY"];
-        if (anthropicKey && (data.mode === "mark" || data.mode === "challenge")) {
-          const claudeModels = [
-            process.env["ANTHROPIC_MODEL"], // optional pin, e.g. "claude-opus-4-8"
-            ...ANTHROPIC_CHAIN,
-          ].filter((m): m is string => Boolean(m));
-          for (const model of claudeModels) {
-            try {
-              const res = await fetch("https://api.anthropic.com/v1/messages", {
-                method: "POST",
-                headers: {
-                  "x-api-key": anthropicKey,
-                  "anthropic-version": "2023-06-01",
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  model,
-                  max_tokens: 32_000,
-                  temperature: 0,
-                  stream: true,
-                  system: claudeSystem ?? system,
-                  messages: [...priorMessages, { role: "user", content: userContent }],
-                }),
-              });
-              lastStatus = res.status;
-              if (res.ok && res.body) {
-                upstream = res;
-                source = "anthropic";
-                servedModel = model;
-                break;
-              }
-              await res.body?.cancel();
-              // 429 rate limit / 529 overloaded → brief pause, then the next model.
-              if (res.status === 429 || res.status === 529)
-                await new Promise((r) => setTimeout(r, 800));
-              // 400/401/404 (bad model id, auth, oversized context) → next model.
-            } catch {
-              /* network error — try the next Claude model, then the gateway */
-            }
+        // Marking and challenges run on the Pro-tier chain — critical
+        // evaluation of an exam script is a reasoning task, and the marking
+        // prompts' Claude-style standard needs the strongest model to execute
+        // it. Other modes keep the fast flash chain.
+        const chain =
+          data.mode === "mark" || data.mode === "challenge" ? MODEL_CHAIN_MARK : MODEL_CHAIN;
+        for (const model of chain) {
+          const res = await fetch(GATEWAY, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model,
+              temperature: 0,
+              top_p: 0.1,
+              stream: true,
+              messages: [
+                { role: "system", content: system },
+                ...priorMessages,
+                { role: "user", content: userContent },
+              ],
+            }),
+          });
+          lastStatus = res.status;
+          if (res.ok && res.body) {
+            upstream = res;
+            servedModel = model;
+            break;
           }
-        }
-
-        if (!upstream) {
-          const chain =
-            data.mode === "mark" || data.mode === "challenge" ? MODEL_CHAIN_MARK : MODEL_CHAIN;
-          for (const model of chain) {
-            const res = await fetch(GATEWAY, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model,
-                temperature: 0,
-                top_p: 0.1,
-                stream: true,
-                messages: [
-                  { role: "system", content: system },
-                  ...priorMessages,
-                  { role: "user", content: userContent },
-                ],
-              }),
-            });
-            lastStatus = res.status;
-            if (res.ok && res.body) {
-              upstream = res;
-              servedModel = model;
-              break;
-            }
-            // Budget or rate limit on this model — try the next, cheaper one.
-            if (res.status !== 402 && res.status !== 429) break;
-            await res.body?.cancel();
-            if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
-          }
+          // Budget or rate limit on this model — try the next, cheaper one.
+          if (res.status !== 402 && res.status !== 429) break;
+          await res.body?.cancel();
+          if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
         }
 
         // Allowance/rate-limit exhausted on the shared gateway — fall back to the
@@ -398,19 +330,13 @@ export const Route = createFileRoute("/api/study")({
                     const json = JSON.parse(payload) as {
                       choices?: { delta?: { content?: string } }[];
                       candidates?: { content?: { parts?: { text?: string }[] } }[];
-                      type?: string;
-                      delta?: { text?: string };
                     };
                     const delta =
                       source === "google"
                         ? (json.candidates?.[0]?.content?.parts ?? [])
                             .map((p) => p.text ?? "")
                             .join("")
-                        : source === "anthropic"
-                          ? json.type === "content_block_delta"
-                            ? (json.delta?.text ?? "")
-                            : ""
-                          : json.choices?.[0]?.delta?.content;
+                        : json.choices?.[0]?.delta?.content;
                     if (delta) {
                       full += delta;
                       controller.enqueue(encoder.encode(delta));
@@ -444,8 +370,8 @@ export const Route = createFileRoute("/api/study")({
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",
-            // Which model actually served the run (claude-…, google/gemini-…,
-            // groq/…) — surfaced in the answer footer so the user can see it.
+            // Which model actually served the run (google/gemini-…, groq/…) —
+            // surfaced in the answer footer so the user can see it.
             "X-Study-Model": servedModel,
           },
         });

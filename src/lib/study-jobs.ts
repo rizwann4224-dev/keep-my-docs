@@ -8,7 +8,7 @@ export type Turn = {
   answer: string;
   status: "streaming" | "done" | "error";
   error?: string;
-  /** Model that served the run (e.g. "claude-sonnet-4-6") — shown in the footer. */
+  /** Model that served the run (e.g. "google/gemini-3.1-pro-preview") — shown in the footer. */
   model?: string | undefined;
 };
 
