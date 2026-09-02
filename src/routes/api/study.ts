@@ -239,6 +239,44 @@ export const Route = createFileRoute("/api/study")({
           }
         }
 
+        // Google key also exhausted — final fallback to the project's Groq key.
+        // Groq speaks the same OpenAI-style SSE shape as the gateway, so the
+        // stream parser below handles it unchanged.
+        if (!upstream) {
+          const groqKey = process.env["GROQ_API_KEY"];
+          if (groqKey) {
+            for (const model of GROQ_MODEL_CHAIN) {
+              const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${groqKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model,
+                  temperature: 0,
+                  top_p: 0.1,
+                  stream: true,
+                  messages: [
+                    { role: "system", content: system },
+                    ...priorMessages,
+                    { role: "user", content: userContent },
+                  ],
+                }),
+              });
+              if (res.ok && res.body) {
+                upstream = res;
+                source = "groq";
+                break;
+              }
+              lastStatus = res.status;
+              await res.body?.cancel();
+              if (res.status !== 429 && res.status !== 503) break;
+              await new Promise((r) => setTimeout(r, 800));
+            }
+          }
+        }
+
         if (!upstream) {
           if (lastStatus === 429)
             return new Response("The AI is busy right now — try again in a few seconds.", {
