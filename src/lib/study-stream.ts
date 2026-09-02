@@ -22,6 +22,10 @@ export type StudyRequest = {
   maxMarks?: number | undefined;
 };
 
+function getStudyApiPath() {
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/+$/, "");
+  return `${base || ""}/api/study`;
+}
 
 /** Streams the model's answer token-by-token; resolves with the full text. */
 export async function streamStudyQuery(
@@ -33,7 +37,7 @@ export async function streamStudyQuery(
   const token = data.session?.access_token;
   if (!token) throw new Error("Your session expired — sign in again.");
 
-  const res = await fetch("/api/study", {
+  const res = await fetch(getStudyApiPath(), {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),

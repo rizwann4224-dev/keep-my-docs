@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import * as jobs from "@/lib/study-jobs";
 import type { Rigour } from "@/lib/study-prompts";
@@ -39,6 +39,7 @@ export function ChallengeEvaluation({
   // key on every render, so a running job could never be found after it started.
   const [challengeKey] = useState(() => `${subjectId}:challenge:${crypto.randomUUID()}`);
 
+  useSyncExternalStore(jobs.subscribe, jobs.getSnapshot, jobs.getSnapshot);
   const turns = jobs.getTurns(challengeKey);
   const latest = turns[turns.length - 1];
   const running = jobs.isRunning(challengeKey);
