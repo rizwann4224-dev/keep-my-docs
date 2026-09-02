@@ -25,6 +25,9 @@ const MODEL_CHAIN = [
 /** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
 const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
 
+/** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
+const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+
 const Body = z.object({
   subjectId: z.string().uuid(),
   mode: z.enum(["ask", "mark", "insights", "exam", "challenge"]),
@@ -168,7 +171,7 @@ export const Route = createFileRoute("/api/study")({
             : [];
 
         let upstream: Response | null = null;
-        let source: "gateway" | "google" = "gateway";
+        let source: "gateway" | "google" | "groq" = "gateway";
         let lastStatus = 0;
         for (const model of MODEL_CHAIN) {
           const res = await fetch(GATEWAY, {
@@ -226,6 +229,44 @@ export const Route = createFileRoute("/api/study")({
               if (res.ok && res.body) {
                 upstream = res;
                 source = "google";
+                break;
+              }
+              lastStatus = res.status;
+              await res.body?.cancel();
+              if (res.status !== 429 && res.status !== 503) break;
+              await new Promise((r) => setTimeout(r, 800));
+            }
+          }
+        }
+
+        // Google key also exhausted — final fallback to the project's Groq key.
+        // Groq speaks the same OpenAI-style SSE shape as the gateway, so the
+        // stream parser below handles it unchanged.
+        if (!upstream) {
+          const groqKey = process.env["GROQ_API_KEY"];
+          if (groqKey) {
+            for (const model of GROQ_MODEL_CHAIN) {
+              const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${groqKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model,
+                  temperature: 0,
+                  top_p: 0.1,
+                  stream: true,
+                  messages: [
+                    { role: "system", content: system },
+                    ...priorMessages,
+                    { role: "user", content: userContent },
+                  ],
+                }),
+              });
+              if (res.ok && res.body) {
+                upstream = res;
+                source = "groq";
                 break;
               }
               lastStatus = res.status;
