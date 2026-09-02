@@ -263,7 +263,11 @@ export function MarkPanel({ subjectId, subjectName }: { subjectId: string; subje
       )}
 
       {latest?.answer && (
-        <AnswerCard answer={latest.answer} streaming={latest.status === "streaming"}>
+        <AnswerCard
+          answer={latest.answer}
+          streaming={latest.status === "streaming"}
+          model={latest.model}
+        >
           {latest.status === "done" && hasMarks && markData && (
             <ChallengeEvaluation
               subjectId={subjectId}

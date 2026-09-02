@@ -23,12 +23,13 @@ export type StudyRequest = {
 };
 
 
-/** Streams the model's answer token-by-token; resolves with the full text. */
+/** Streams the model's answer token-by-token; resolves with the full text and
+ *  the model that served the request (from the X-Study-Model header). */
 export async function streamStudyQuery(
   body: StudyRequest,
   onDelta: (fullSoFar: string) => void,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<{ text: string; model?: string | undefined }> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error("Your session expired — sign in again.");
@@ -44,6 +45,7 @@ export async function streamStudyQuery(
     throw new Error((await res.text()) || `Request failed (${res.status})`);
   }
 
+  const model = res.headers.get("x-study-model") ?? undefined;
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let full = "";
@@ -54,5 +56,5 @@ export async function streamStudyQuery(
     onDelta(full);
   }
   if (!full.trim()) throw new Error("The AI returned an empty response.");
-  return full;
+  return { text: full, model };
 }

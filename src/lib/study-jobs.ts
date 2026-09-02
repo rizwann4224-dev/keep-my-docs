@@ -8,6 +8,8 @@ export type Turn = {
   answer: string;
   status: "streaming" | "done" | "error";
   error?: string;
+  /** Model that served the run (e.g. "claude-sonnet-4-6") — shown in the footer. */
+  model?: string | undefined;
 };
 
 type State = Record<string, Turn[]>;
@@ -117,8 +119,8 @@ export function startRun(
   });
 
   void streamStudyQuery(body, (full) => patch(key, id, { answer: full }))
-    .then((full) => {
-      patch(key, id, { answer: full, status: "done" });
+    .then(({ text, model }) => {
+      patch(key, id, { answer: text, status: "done", model });
       // The server saves the turn to history once the stream ends — tell any
       // open History panel to refresh.
       if (typeof window !== "undefined")
