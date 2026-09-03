@@ -12,6 +12,12 @@ import {
   type MarkPart,
   type Rigour,
 } from "@/lib/study-prompts";
+import {
+  geminiGenerationConfig,
+  groqRequestParams,
+  openAiRequestParams,
+  type ReasoningMode,
+} from "@/lib/reasoning";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -176,6 +182,12 @@ export const Route = createFileRoute("/api/study")({
               ])
             : [];
 
+        const messages = [
+          { role: "system", content: system },
+          ...priorMessages,
+          { role: "user", content: userContent },
+        ];
+
         let upstream: Response | null = null;
         let source: "gateway" | "google" | "groq" = "gateway";
         let lastStatus = 0;
@@ -183,21 +195,33 @@ export const Route = createFileRoute("/api/study")({
         // latency — remember that and go straight to the personal key.
         if (Date.now() > gatewayBlockedUntil) {
           for (const model of MODEL_CHAIN) {
-            const res = await fetch(GATEWAY, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model,
-                temperature: 0,
-                top_p: 0.1,
-                stream: true,
-                messages: [
-                  { role: "system", content: system },
-                  ...priorMessages,
-                  { role: "user", content: userContent },
-                ],
-              }),
-            });
+            // openAiRequestParams adds the model's reasoning tier (and the old
+            // sampling, for the non-Gemini-3 models). That tier is the model's
+            // thinking budget — what makes a marking run deeper, not just longer.
+            const post = (withReasoning: boolean) =>
+              fetch(GATEWAY, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${apiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model,
+                  stream: true,
+                  ...(withReasoning
+                    ? openAiRequestParams(model, data.mode)
+                    : { temperature: 0, top_p: 0.1 }),
+                  messages,
+                }),
+              });
+
+            let res = await post(true);
+            // A gateway that does not know `reasoning_effort` answers 400/422.
+            // Retry once without it instead of losing the model over a knob.
+            if (res.status === 400 || res.status === 422) {
+              await res.body?.cancel();
+              res = await post(false);
+            }
             lastStatus = res.status;
             if (res.ok && res.body) {
               upstream = res;
@@ -210,6 +234,8 @@ export const Route = createFileRoute("/api/study")({
               gatewayBlockedUntil = Date.now() + GATEWAY_COOLDOWN_MS;
               break;
             }
+            // 404 = this model id is not on the gateway; the next one may be.
+            if (res.status === 404) continue;
             if (res.status !== 429) break;
             await new Promise((r) => setTimeout(r, 400));
           }
@@ -221,24 +247,35 @@ export const Route = createFileRoute("/api/study")({
           const googleKey = process.env["GEMINI_API_KEY"];
           if (googleKey) {
             for (const model of GOOGLE_MODEL_CHAIN) {
-              const res = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", "x-goog-api-key": googleKey },
-                  body: JSON.stringify({
-                    systemInstruction: { parts: [{ text: system }] },
-                    contents: [
-                      ...priorMessages.map((m) => ({
-                        role: m.role === "assistant" ? "model" : "user",
-                        parts: [{ text: m.content }],
-                      })),
-                      { role: "user", parts: [{ text: userContent }] },
-                    ],
-                    generationConfig: { temperature: 0, topP: 0.1 },
-                  }),
-                },
-              );
+              const post = (mode: ReasoningMode) =>
+                fetch(
+                  `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "x-goog-api-key": googleKey },
+                    body: JSON.stringify({
+                      systemInstruction: { parts: [{ text: system }] },
+                      contents: [
+                        ...priorMessages.map((m) => ({
+                          role: m.role === "assistant" ? "model" : "user",
+                          parts: [{ text: m.content }],
+                        })),
+                        { role: "user", parts: [{ text: userContent }] },
+                      ],
+                      generationConfig: geminiGenerationConfig(model, mode),
+                    }),
+                  },
+                );
+
+              let res = await post(data.mode);
+              // 400 here almost always means this model rejects the thinking
+              // config (an alias that resolves to a 2.5 model, or a level this
+              // model does not offer). Retry once with thinking off before
+              // falling through to a weaker model.
+              if (res.status === 400) {
+                await res.body?.cancel();
+                res = await post("off");
+              }
               if (res.ok && res.body) {
                 upstream = res;
                 source = "google";
@@ -272,14 +309,11 @@ export const Route = createFileRoute("/api/study")({
                 },
                 body: JSON.stringify({
                   model,
-                  temperature: 0,
-                  top_p: 0.1,
                   stream: true,
-                  messages: [
-                    { role: "system", content: system },
-                    ...priorMessages,
-                    { role: "user", content: userContent },
-                  ],
+                  // llama has no reasoning tier; a reasoning-capable Groq model
+                  // would get one here. See groqRequestParams.
+                  ...groqRequestParams(model, data.mode),
+                  messages,
                 }),
               });
               if (res.ok && res.body) {
@@ -327,11 +361,16 @@ export const Route = createFileRoute("/api/study")({
                   try {
                     const json = JSON.parse(payload) as {
                       choices?: { delta?: { content?: string } }[];
-                      candidates?: { content?: { parts?: { text?: string }[] } }[];
+                      candidates?: {
+                        content?: { parts?: { text?: string; thought?: boolean }[] };
+                      }[];
                     };
                     const delta =
                       source === "google"
                         ? (json.candidates?.[0]?.content?.parts ?? [])
+                            // Reasoning summaries arrive as parts flagged
+                            // `thought: true` — scaffolding, not the answer.
+                            .filter((p) => !p.thought)
                             .map((p) => p.text ?? "")
                             .join("")
                         : json.choices?.[0]?.delta?.content;

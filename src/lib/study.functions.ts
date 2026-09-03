@@ -9,6 +9,7 @@ import {
   markSystemPrompt,
   type MarkPart,
 } from "@/lib/study-prompts";
+import { reasoningEffortParam } from "@/lib/reasoning";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -82,6 +83,8 @@ export const runStudyQuery = createServerFn({ method: "POST" })
       ],
       temperature: 0.3, // Lower temperature for more precise, consistent answers
       top_p: 0.9,
+      // Deep thinking — a shallow marked answer is the one that costs marks.
+      ...reasoningEffortParam(data.mode),
     });
     if (!content) throw new Error("The AI returned an empty response.");
 
