@@ -16,6 +16,7 @@ import {
   groqRequestParams,
   isGemini3Family,
   openAiRequestParams,
+  openAiSamplingParams,
   reasoningEffortParam,
   thinkingHeadroom,
 } from "../src/lib/reasoning.ts";
@@ -147,6 +148,17 @@ test("gateway params: effort tier for every model, sampling only for non-Gemini-
       temperature: 0,
       top_p: 0.1,
       reasoning_effort: "medium",
+    });
+  });
+});
+
+test("sampling-only params (the 400-retry path) never send sampling to Gemini 3", () => {
+  withoutEnvOverride(() => {
+    assert.deepEqual(openAiSamplingParams("google/gemini-3.6-flash"), {});
+    assert.deepEqual(openAiSamplingParams("google/gemini-3.1-pro-preview"), {});
+    assert.deepEqual(openAiSamplingParams("google/gemini-2.5-flash"), {
+      temperature: 0,
+      top_p: 0.1,
     });
   });
 });
