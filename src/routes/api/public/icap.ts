@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
+import { geminiThinkingConfig, reasoningEffortParam, thinkingHeadroom } from "@/lib/reasoning";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -34,24 +35,34 @@ export const Route = createFileRoute("/api/public/icap")({
         let lastStatus = 0;
         let lastBody = "";
 
+        // Thinking tokens are billed against the output cap, so a cap sized for
+        // the answer alone would be truncated mid-sentence.
+        const maxOut = Math.round((tokens ?? 1000) * 1.8) + thinkingHeadroom("ask");
+
         if (apiKey) {
           for (const model of MODEL_CHAIN) {
-            const res = await fetch(GATEWAY, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model,
-                temperature: 0,
-                max_tokens: Math.round((tokens ?? 1000) * 1.8),
-                messages: [
-                  { role: "system", content: system },
-                  { role: "user", content: user },
-                ],
-              }),
-            });
+            const post = (withReasoning: boolean) =>
+              fetch(GATEWAY, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${apiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model,
+                  temperature: 0,
+                  max_tokens: maxOut,
+                  ...(withReasoning ? reasoningEffortParam("ask") : {}),
+                  messages: [
+                    { role: "system", content: system },
+                    { role: "user", content: user },
+                  ],
+                }),
+              });
+            let res = await post(true);
+            // Gateway without `reasoning_effort` support answers 400/422 —
+            // retry once without the knob rather than giving up on the model.
+            if (res.status === 400 || res.status === 422) res = await post(false);
             if (res.ok) {
               const json = (await res.json()) as {
                 choices?: { message?: { content?: string } }[];
@@ -92,7 +103,8 @@ export const Route = createFileRoute("/api/public/icap")({
                     system_instruction: { parts: [{ text: system }] },
                     contents: [{ role: "user", parts: [{ text: user }] }],
                     generationConfig: {
-                      maxOutputTokens: Math.round((tokens ?? 1000) * 1.8),
+                      maxOutputTokens: maxOut,
+                      ...(geminiThinkingConfig(model, "ask") ?? {}),
                     },
                   }),
                 },

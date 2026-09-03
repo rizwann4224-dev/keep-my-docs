@@ -45,6 +45,10 @@ const NAV_ITEMS: {
  * Purely presentational left-hand navigation. It only reads/writes the `tab`
  * state that already exists in the parent route — it does not touch any
  * response, streaming, or job logic.
+ *
+ * Light mode matches the Study Desk reference design: a soft neutral-grey
+ * rail with dark navy text and a grey chip on the active item. Dark mode
+ * keeps the original navy palette.
  */
 export function StudyDeskSidebar({
   tab,
@@ -62,17 +66,34 @@ export function StudyDeskSidebar({
   return (
     <aside
       className={cn(
-        "sticky top-0 flex h-screen shrink-0 flex-col justify-between bg-[#0b1830] text-slate-200 transition-[width] duration-200",
+        "sticky top-0 flex h-screen shrink-0 flex-col justify-between transition-[width] duration-200",
+        dark
+          ? "bg-[#0b1830] text-slate-200"
+          : "border-r border-[#e3e8f0] bg-[#f7f8fa] text-[#52657a]",
         collapsed ? "w-[76px]" : "w-[264px]",
       )}
     >
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="flex items-center gap-3 px-5 py-5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-sm font-semibold text-white">
+          <span
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-sm font-semibold",
+              dark
+                ? "border-white/15 bg-white/5 text-white"
+                : "border-[#d9e3f0] bg-white text-[#142b4a]",
+            )}
+          >
             S
           </span>
           {!collapsed && (
-            <span className="truncate text-base font-semibold text-white">Study Desk</span>
+            <span
+              className={cn(
+                "truncate text-base font-semibold",
+                dark ? "text-white" : "text-[#142b4a]",
+              )}
+            >
+              Study Desk
+            </span>
           )}
         </div>
 
@@ -90,16 +111,24 @@ export function StudyDeskSidebar({
                 className={cn(
                   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
                   active
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-slate-300 hover:bg-white/5 hover:text-white",
+                    ? dark
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "bg-[#e9ecf1] text-[#142b4a]"
+                    : dark
+                      ? "text-slate-300 hover:bg-white/5 hover:text-white"
+                      : "text-[#334155] hover:bg-[#edf0f4] hover:text-[#142b4a]",
                 )}
               >
                 <span
                   className={cn(
                     "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border",
                     active
-                      ? "border-primary-foreground/40 bg-white/15 text-primary-foreground"
-                      : "border-white/15 bg-white/5 text-slate-300",
+                      ? dark
+                        ? "border-primary-foreground/40 bg-white/15 text-primary-foreground"
+                        : "border-[#d9e3f0] bg-[#e0e5ec] text-[#142b4a]"
+                      : dark
+                        ? "border-white/15 bg-white/5 text-slate-300"
+                        : "border-transparent bg-transparent text-[#8a97a8]",
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -110,7 +139,13 @@ export function StudyDeskSidebar({
                     <span
                       className={cn(
                         "block truncate text-xs",
-                        active ? "text-primary-foreground/80" : "text-slate-400",
+                        active
+                          ? dark
+                            ? "text-primary-foreground/80"
+                            : "text-[#52657a]"
+                          : dark
+                            ? "text-slate-400"
+                            : "text-[#64748b]",
                       )}
                     >
                       {item.description}
@@ -123,7 +158,9 @@ export function StudyDeskSidebar({
         </nav>
       </div>
 
-      <div className="shrink-0 border-t border-white/10 px-3 py-4">
+      <div
+        className={cn("shrink-0 border-t px-3 py-4", dark ? "border-white/10" : "border-[#e3e8f0]")}
+      >
         <div
           className={cn(
             "flex items-center gap-3 rounded-xl px-2 py-2",
@@ -133,9 +170,13 @@ export function StudyDeskSidebar({
           {dark ? (
             <Moon className="h-4 w-4 shrink-0 text-slate-300" />
           ) : (
-            <Sun className="h-4 w-4 shrink-0 text-slate-300" />
+            <Sun className="h-4 w-4 shrink-0 text-[#52657a]" />
           )}
-          {!collapsed && <span className="flex-1 text-sm text-slate-200">Dark mode</span>}
+          {!collapsed && (
+            <span className={cn("flex-1 text-sm", dark ? "text-slate-200" : "text-[#334155]")}>
+              Dark mode
+            </span>
+          )}
           <button
             type="button"
             role="switch"
@@ -144,7 +185,7 @@ export function StudyDeskSidebar({
             onClick={toggle}
             className={cn(
               "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
-              dark ? "bg-primary" : "bg-white/20",
+              dark ? "bg-primary" : "bg-[#d3dae3]",
             )}
           >
             <span
@@ -159,7 +200,12 @@ export function StudyDeskSidebar({
         <button
           type="button"
           onClick={onToggleCollapsed}
-          className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg px-2 py-2 text-xs text-slate-400 hover:bg-white/5 hover:text-white"
+          className={cn(
+            "mt-2 flex w-full items-center justify-center gap-2 rounded-lg px-2 py-2 text-xs",
+            dark
+              ? "text-slate-400 hover:bg-white/5 hover:text-white"
+              : "text-[#64748b] hover:bg-[#edf0f4] hover:text-[#142b4a]",
+          )}
         >
           {collapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
           {!collapsed && <span>Collapse</span>}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { Bell, CheckCircle2, ClipboardCheck, FileText, LineChart, Sparkles } from "lucide-react";
 import * as jobs from "@/lib/study-jobs";
@@ -31,7 +31,7 @@ const OPTIONS: { id: MarkPart; label: string; hint: string; icon: typeof FileTex
 
 const RIGOURS: { id: Rigour; label: string; hint: string }[] = [
   { id: "moderate", label: "Moderate", hint: "Credit for correct substance" },
-  { id: "strict", label: "Strict", hint: "Standard ICAP examiner" },
+  { id: "strict", label: "Strict", hint: "Critical examiner — evidence or zero" },
   { id: "hard", label: "Hard / difficult", hint: "Distinction standard, no benefit of the doubt" },
 ];
 
@@ -110,17 +110,13 @@ export function MarkPanel({ subjectId, subjectName }: { subjectId: string; subje
     return null;
   }
 
-  // Update markData when a finished marking response arrives.
-  useEffect(() => {
-    if (!hasMarks) {
-      setMarkData(null);
-      return;
-    }
-    if (latest?.status !== "done" || !latest.answer) return;
-
+  // Update markData when response arrives
+  if (latest?.status === "done" && latest.answer && hasMarks && !markData) {
     const extracted = extractMarksFromResponse(latest.answer);
-    setMarkData(extracted);
-  }, [latest?.status, latest?.answer, hasMarks]);
+    if (extracted) {
+      setMarkData(extracted);
+    }
+  }
 
   const canGenerate =
     !running &&
@@ -267,7 +263,11 @@ export function MarkPanel({ subjectId, subjectName }: { subjectId: string; subje
       )}
 
       {latest?.answer && (
-        <AnswerCard answer={latest.answer} streaming={latest.status === "streaming"}>
+        <AnswerCard
+          answer={latest.answer}
+          streaming={latest.status === "streaming"}
+          model={latest.model}
+        >
           {latest.status === "done" && hasMarks && markData && (
             <ChallengeEvaluation
               subjectId={subjectId}

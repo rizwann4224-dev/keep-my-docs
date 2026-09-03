@@ -9,9 +9,16 @@ import {
   insightsSystemPrompt,
   buildRelevantSourceBlock,
   markSystemPrompt,
+  MAX_CONTEXT_CHARS,
   type MarkPart,
   type Rigour,
 } from "@/lib/study-prompts";
+import {
+  geminiGenerationConfig,
+  groqRequestParams,
+  openAiRequestParams,
+  type ReasoningMode,
+} from "@/lib/reasoning";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -22,17 +29,20 @@ const MODEL_CHAIN = [
   "google/gemini-2.5-flash-lite",
 ];
 
+/**
+ * Marking and challenges need the strongest reasoning available on the shared
+ * allowance: Pro-tier models first (critical evaluation of an exam script is a
+ * reasoning task, and flash models grade too generously), then the usual flash
+ * chain. The critical marking standard is carried by the prompts in
+ * study-prompts.ts; the Pro-tier model is what executes it reliably.
+ */
+const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", ...MODEL_CHAIN];
+
 /** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
 const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
 
 /** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
 const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
-
-/** Once the shared gateway reports "no credits", skip it for a while — retrying
- * it on every request only adds seconds of latency before the real answer. */
-const GATEWAY_COOLDOWN_MS = 10 * 60 * 1000;
-let gatewayBlockedUntil = 0;
-
 
 const Body = z.object({
   subjectId: z.string().uuid(),
@@ -117,16 +127,16 @@ export const Route = createFileRoute("/api/study")({
           const retrievalQuery =
             `${data.question}\n${data.userAnswer ?? ""}` +
             (data.mode === "challenge" ? `\n${data.challengeQuery ?? ""}` : "");
-          // Marking, exam-setting and challenges only need the passages that bear
-          // on the question: a leaner context is what makes the first tokens arrive in seconds.
+          // Marking must see the WHOLE notebook — the official answer, marking
+          // guide and examiner's comments for the question can sit in any
+          // source, so mark/challenge get the maximum context budget. Exam and
+          // ask keep a leaner, relevance-ranked context for speed.
           const budget =
-            data.mode === "mark"
-              ? 250_000
+            data.mode === "mark" || data.mode === "challenge"
+              ? MAX_CONTEXT_CHARS
               : data.mode === "exam"
                 ? 300_000
-                : data.mode === "challenge"
-                  ? 150_000
-                  : 350_000;
+                : 350_000;
           const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery, budget);
           system =
             data.mode === "mark"
@@ -178,19 +188,29 @@ export const Route = createFileRoute("/api/study")({
 
         let upstream: Response | null = null;
         let source: "gateway" | "google" | "groq" = "gateway";
+        let servedModel = "";
         let lastStatus = 0;
-        // When the shared gateway has no credits, every extra attempt is pure
-        // latency — remember that and go straight to the personal key.
-        if (Date.now() > gatewayBlockedUntil) {
-          for (const model of MODEL_CHAIN) {
-            const res = await fetch(GATEWAY, {
+
+        // Marking and challenges run on the Pro-tier chain — critical
+        // evaluation of an exam script is a reasoning task, and the marking
+        // prompts' critical standard needs the strongest model to execute
+        // it. Other modes keep the fast flash chain.
+        const chain =
+          data.mode === "mark" || data.mode === "challenge" ? MODEL_CHAIN_MARK : MODEL_CHAIN;
+        for (const model of chain) {
+          // openAiRequestParams adds the model's reasoning tier (and the old
+          // sampling, for the non-Gemini-3 models) — the thinking budget that
+          // makes a marking run deeper, not just longer.
+          const post = (withReasoning: boolean) =>
+            fetch(GATEWAY, {
               method: "POST",
               headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
               body: JSON.stringify({
                 model,
-                temperature: 0,
-                top_p: 0.1,
                 stream: true,
+                ...(withReasoning
+                  ? openAiRequestParams(model, data.mode)
+                  : { temperature: 0, top_p: 0.1 }),
                 messages: [
                   { role: "system", content: system },
                   ...priorMessages,
@@ -198,64 +218,86 @@ export const Route = createFileRoute("/api/study")({
                 ],
               }),
             });
-            lastStatus = res.status;
-            if (res.ok && res.body) {
-              upstream = res;
-              break;
-            }
+
+          let res = await post(true);
+          // A gateway that does not know `reasoning_effort` answers 400/422.
+          // Retry once without it instead of losing the model over a knob.
+          if (res.status === 400 || res.status === 422) {
             await res.body?.cancel();
-            // Out of credits / blocked: the whole gateway is unavailable, not
-            // just this model — stop trying and fall through immediately.
-            if (res.status === 402 || res.status === 403) {
-              gatewayBlockedUntil = Date.now() + GATEWAY_COOLDOWN_MS;
-              break;
-            }
-            if (res.status !== 429) break;
-            await new Promise((r) => setTimeout(r, 400));
+            res = await post(false);
           }
+          lastStatus = res.status;
+          if (res.ok && res.body) {
+            upstream = res;
+            servedModel = model;
+            break;
+          }
+          // Budget or rate limit on this model — try the next, cheaper one.
+          // 404 = this model id is not on the gateway; the next one may be.
+          if (res.status !== 402 && res.status !== 429 && res.status !== 404) break;
+          await res.body?.cancel();
+          if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
         }
 
-        // Shared gateway unavailable — fall back to the project's own Gemini key
-        // so a marking run never dead-ends.
+        // Allowance/rate-limit exhausted on the shared gateway — fall back to the
+        // project's own Gemini key so the user is never blocked.
+        // Any gateway failure (credits, rate limit, upstream error) falls back to the
+        // project's own Gemini key so a marking run never dead-ends.
         if (!upstream) {
           const googleKey = process.env["GEMINI_API_KEY"];
           if (googleKey) {
             for (const model of GOOGLE_MODEL_CHAIN) {
-              const res = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", "x-goog-api-key": googleKey },
-                  body: JSON.stringify({
-                    systemInstruction: { parts: [{ text: system }] },
-                    contents: [
-                      ...priorMessages.map((m) => ({
-                        role: m.role === "assistant" ? "model" : "user",
-                        parts: [{ text: m.content }],
-                      })),
-                      { role: "user", parts: [{ text: userContent }] },
-                    ],
-                    generationConfig: { temperature: 0, topP: 0.1 },
-                  }),
-                },
-              );
+              const post = (mode: ReasoningMode) =>
+                fetch(
+                  `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "x-goog-api-key": googleKey },
+                    body: JSON.stringify({
+                      systemInstruction: { parts: [{ text: system }] },
+                      contents: [
+                        ...priorMessages.map((m) => ({
+                          role: m.role === "assistant" ? "model" : "user",
+                          parts: [{ text: m.content }],
+                        })),
+                        { role: "user", parts: [{ text: userContent }] },
+                      ],
+                      generationConfig: geminiGenerationConfig(model, mode),
+                    }),
+                  },
+                );
+
+              let res = await post(data.mode);
+              // 400 here almost always means this model rejects the thinking
+              // config (an alias that resolves to a 2.5 model, or a level this
+              // model does not offer). Retry once with thinking off before
+              // falling through to a weaker model.
+              if (res.status === 400) {
+                await res.body?.cancel();
+                res = await post("off");
+              }
               if (res.ok && res.body) {
                 upstream = res;
                 source = "google";
+                servedModel = model;
                 break;
               }
               lastStatus = res.status;
               await res.body?.cancel();
               // 404 = model retired for this key; 400 = unsupported request for
               // this model. Both are per-model, so try the next one.
-              if (res.status !== 429 && res.status !== 503 && res.status !== 404 && res.status !== 400)
+              if (
+                res.status !== 429 &&
+                res.status !== 503 &&
+                res.status !== 404 &&
+                res.status !== 400
+              )
                 break;
               if (res.status === 429 || res.status === 503)
                 await new Promise((r) => setTimeout(r, 800));
             }
           }
         }
-
 
         // Google key also exhausted — final fallback to the project's Groq key.
         // Groq speaks the same OpenAI-style SSE shape as the gateway, so the
@@ -272,9 +314,10 @@ export const Route = createFileRoute("/api/study")({
                 },
                 body: JSON.stringify({
                   model,
-                  temperature: 0,
-                  top_p: 0.1,
                   stream: true,
+                  // llama has no reasoning tier; a reasoning-capable Groq model
+                  // would get one here. See groqRequestParams.
+                  ...groqRequestParams(model, data.mode),
                   messages: [
                     { role: "system", content: system },
                     ...priorMessages,
@@ -285,13 +328,13 @@ export const Route = createFileRoute("/api/study")({
               if (res.ok && res.body) {
                 upstream = res;
                 source = "groq";
+                servedModel = model;
                 break;
               }
               lastStatus = res.status;
               await res.body?.cancel();
               if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
               if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
-
             }
           }
         }
@@ -327,11 +370,16 @@ export const Route = createFileRoute("/api/study")({
                   try {
                     const json = JSON.parse(payload) as {
                       choices?: { delta?: { content?: string } }[];
-                      candidates?: { content?: { parts?: { text?: string }[] } }[];
+                      candidates?: {
+                        content?: { parts?: { text?: string; thought?: boolean }[] };
+                      }[];
                     };
                     const delta =
                       source === "google"
                         ? (json.candidates?.[0]?.content?.parts ?? [])
+                            // Reasoning summaries arrive as parts flagged
+                            // `thought: true` — scaffolding, not the answer.
+                            .filter((p) => !p.thought)
                             .map((p) => p.text ?? "")
                             .join("")
                         : json.choices?.[0]?.delta?.content;
@@ -368,6 +416,9 @@ export const Route = createFileRoute("/api/study")({
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",
+            // Which model actually served the run (google/gemini-…, groq/…) —
+            // surfaced in the answer footer so the user can see it.
+            "X-Study-Model": servedModel,
           },
         });
       },
