@@ -44,6 +44,15 @@ const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flas
 /** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
 const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 
+/**
+ * When the shared Lovable gateway reports 402 (credits exhausted) or 403
+ * (blocked), that applies to every model on it. Remember it for a few minutes
+ * so later requests skip the gateway entirely and go straight to the project's
+ * own Gemini/Groq keys instead of burning seconds on doomed calls.
+ */
+let gatewayBlockedUntil = 0;
+
+
 const Body = z.object({
   subjectId: z.string().uuid(),
   mode: z.enum(["ask", "mark", "insights", "exam", "challenge"]),
@@ -197,7 +206,12 @@ export const Route = createFileRoute("/api/study")({
         // it. Other modes keep the fast flash chain.
         const chain =
           data.mode === "mark" || data.mode === "challenge" ? MODEL_CHAIN_MARK : MODEL_CHAIN;
-        for (const model of chain) {
+        // Credit exhaustion (402) / policy block (403) is workspace-wide, not
+        // per-model: once seen, every further gateway model returns the same.
+        // Skip the whole gateway for a while and go straight to the project's
+        // own keys, so marking never stalls or surfaces a 402.
+        for (const model of gatewayBlockedUntil > Date.now() ? [] : chain) {
+
           // openAiRequestParams adds the model's reasoning tier (and the old
           // sampling, for the non-Gemini-3 models) — the thinking budget that
           // makes a marking run deeper, not just longer.
@@ -232,12 +246,19 @@ export const Route = createFileRoute("/api/study")({
             servedModel = model;
             break;
           }
-          // Budget or rate limit on this model — try the next, cheaper one.
-          // 404 = this model id is not on the gateway; the next one may be.
-          if (res.status !== 402 && res.status !== 429 && res.status !== 404) break;
           await res.body?.cancel();
+          // Out of credits / blocked by policy — terminal for the whole
+          // gateway. Stop trying gateway models here and for the next 10
+          // minutes; the project keys below take over.
+          if (res.status === 402 || res.status === 403) {
+            gatewayBlockedUntil = Date.now() + 10 * 60_000;
+            break;
+          }
+          // Rate limit or unknown model id — the next model may still work.
+          if (res.status !== 429 && res.status !== 404) break;
           if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
         }
+
 
         // Allowance/rate-limit exhausted on the shared gateway — fall back to the
         // project's own Gemini key so the user is never blocked.
@@ -344,8 +365,12 @@ export const Route = createFileRoute("/api/study")({
             return new Response("The AI is busy right now — try again in a few seconds.", {
               status: 429,
             });
-          return new Response(`AI request failed (${lastStatus})`, { status: 502 });
+          return new Response(
+            "All AI providers are unavailable right now — please try again in a moment.",
+            { status: 503 },
+          );
         }
+
 
         const encoder = new TextEncoder();
         const decoder = new TextDecoder();
