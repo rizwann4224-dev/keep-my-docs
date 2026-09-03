@@ -154,16 +154,22 @@ export function reasoningEffortParam(mode: ReasoningMode): Record<string, unknow
 }
 
 /**
+ * Sampling fields only (no reasoning knob) for an OpenAI-style request. Gemini 3
+ * models get none — Google documents that Gemini 3's reasoning is tuned for the
+ * default temperature/top_p/top_k, and overriding them is rejected. Used by the
+ * 400/422 retry path that re-issues a request without `reasoning_effort`.
+ */
+export function openAiSamplingParams(model: string): Record<string, unknown> {
+  if (isGemini3Family(model)) return {};
+  return { temperature: 0, top_p: 0.1 };
+}
+
+/**
  * Sampling/reasoning fields for an OpenAI-style request (Lovable gateway).
  * Gemini 3 models get no sampling overrides — only the effort tier.
  */
 export function openAiRequestParams(model: string, mode: ReasoningMode): Record<string, unknown> {
-  const params: Record<string, unknown> = {};
-  if (!isGemini3Family(model)) {
-    params["temperature"] = 0;
-    params["top_p"] = 0.1;
-  }
-  return { ...params, ...reasoningEffortParam(mode) };
+  return { ...openAiSamplingParams(model), ...reasoningEffortParam(mode) };
 }
 
 /**

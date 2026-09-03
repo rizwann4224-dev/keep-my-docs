@@ -16,6 +16,7 @@ import {
   groqRequestParams,
   isGemini3Family,
   openAiRequestParams,
+  openAiSamplingParams,
   reasoningEffortParam,
   thinkingHeadroom,
 } from "../src/lib/reasoning.ts";
@@ -25,7 +26,7 @@ const GATEWAY_CHAIN = [
   "google/gemini-2.5-flash",
   "google/gemini-2.5-flash-lite",
 ];
-const GOOGLE_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
+const GOOGLE_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"];
 
 function withoutEnvOverride<T>(fn: () => T): T {
   const previous = process.env["STUDY_REASONING_EFFORT"];
@@ -68,9 +69,11 @@ test("STUDY_REASONING_EFFORT overrides every mode, including off", () => {
 
 test("model family detection covers both chains", () => {
   assert.equal(isGemini3Family("google/gemini-3.6-flash"), true);
-  assert.equal(isGemini3Family("gemini-3.5-flash"), true);
+  assert.equal(isGemini3Family("gemini-3.5-flash-lite"), true);
   assert.equal(isGemini3Family("google/gemini-2.5-flash"), false);
   assert.equal(isGemini3Family("google/gemini-2.5-flash-lite"), false);
+  assert.equal(isGemini3Family("gemini-2.5-flash-lite"), false);
+  // Unversioned aliases are treated as 2.5-style, never as Gemini 3.
   assert.equal(isGemini3Family("gemini-flash-latest"), false);
 });
 
@@ -147,6 +150,17 @@ test("gateway params: effort tier for every model, sampling only for non-Gemini-
       temperature: 0,
       top_p: 0.1,
       reasoning_effort: "medium",
+    });
+  });
+});
+
+test("sampling-only params (the 400-retry path) never send sampling to Gemini 3", () => {
+  withoutEnvOverride(() => {
+    assert.deepEqual(openAiSamplingParams("google/gemini-3.6-flash"), {});
+    assert.deepEqual(openAiSamplingParams("google/gemini-3.1-pro-preview"), {});
+    assert.deepEqual(openAiSamplingParams("google/gemini-2.5-flash"), {
+      temperature: 0,
+      top_p: 0.1,
     });
   });
 });

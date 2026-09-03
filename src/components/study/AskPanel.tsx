@@ -269,7 +269,9 @@ export function AskPanel({
 
             {turn.status === "error" && (
               <div className="rounded-xl border border-border bg-card p-5">
-                <p className="text-sm text-destructive">{turn.error ?? "Something went wrong"}</p>
+                <p className="whitespace-pre-line text-sm text-destructive">
+                  {turn.error ?? "Something went wrong"}
+                </p>
               </div>
             )}
           </div>
