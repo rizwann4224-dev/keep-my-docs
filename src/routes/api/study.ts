@@ -44,6 +44,15 @@ const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flas
 /** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
 const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 
+/**
+ * When the shared Lovable gateway reports 402 (credits exhausted) or 403
+ * (blocked), that applies to every model on it. Remember it for a few minutes
+ * so later requests skip the gateway entirely and go straight to the project's
+ * own Gemini/Groq keys instead of burning seconds on doomed calls.
+ */
+let gatewayBlockedUntil = 0;
+
+
 const Body = z.object({
   subjectId: z.string().uuid(),
   mode: z.enum(["ask", "mark", "insights", "exam", "challenge"]),
