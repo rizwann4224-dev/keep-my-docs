@@ -197,7 +197,12 @@ export const Route = createFileRoute("/api/study")({
         // it. Other modes keep the fast flash chain.
         const chain =
           data.mode === "mark" || data.mode === "challenge" ? MODEL_CHAIN_MARK : MODEL_CHAIN;
-        for (const model of chain) {
+        // Credit exhaustion (402) / policy block (403) is workspace-wide, not
+        // per-model: once seen, every further gateway model returns the same.
+        // Skip the whole gateway for a while and go straight to the project's
+        // own keys, so marking never stalls or surfaces a 402.
+        for (const model of gatewayBlockedUntil > Date.now() ? [] : chain) {
+
           // openAiRequestParams adds the model's reasoning tier (and the old
           // sampling, for the non-Gemini-3 models) — the thinking budget that
           // makes a marking run deeper, not just longer.
