@@ -356,8 +356,12 @@ export const Route = createFileRoute("/api/study")({
             return new Response("The AI is busy right now — try again in a few seconds.", {
               status: 429,
             });
-          return new Response(`AI request failed (${lastStatus})`, { status: 502 });
+          return new Response(
+            "All AI providers are unavailable right now — please try again in a moment.",
+            { status: 503 },
+          );
         }
+
 
         const encoder = new TextEncoder();
         const decoder = new TextDecoder();
