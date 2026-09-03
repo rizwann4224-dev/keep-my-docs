@@ -261,6 +261,7 @@ export function AskPanel({
                 streaming={turn.status === "streaming"}
                 sourceCount={turn.status === "done" ? sourceCount : undefined}
                 answerLength={turn.status === "done" && !isExam ? answerLength : undefined}
+                model={turn.model}
               >
                 {turn.status === "done" && <LessonCapture subjectId={subjectId} />}
               </AnswerCard>

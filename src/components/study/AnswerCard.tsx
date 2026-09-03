@@ -14,12 +14,14 @@ export function AnswerCard({
   streaming,
   sourceCount,
   answerLength,
+  model,
   children,
 }: {
   answer: string;
   streaming?: boolean | undefined;
   sourceCount?: number | undefined;
   answerLength?: "short" | "medium" | "long" | undefined;
+  model?: string | undefined;
   children?: React.ReactNode;
 }) {
   const [vote, setVote] = useState<"up" | "down" | null>(null);
@@ -85,7 +87,7 @@ export function AnswerCard({
         )}
       </div>
 
-      {!streaming && (sourceCount !== undefined || answerLength) && (
+      {!streaming && (sourceCount !== undefined || answerLength || model) && (
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-xs text-muted-foreground">
           {sourceCount !== undefined && (
             <span>
@@ -93,6 +95,7 @@ export function AnswerCard({
             </span>
           )}
           {answerLength && <span className="capitalize">Answer length: {answerLength}</span>}
+          {model && <span>Model: {model}</span>}
           <span className="ml-auto flex items-center gap-1.5">
             Generated just now
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
