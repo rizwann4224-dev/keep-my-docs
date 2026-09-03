@@ -28,6 +28,12 @@ const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flas
 /** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
 const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 
+/** Once the shared gateway reports "no credits", skip it for a while — retrying
+ * it on every request only adds seconds of latency before the real answer. */
+const GATEWAY_COOLDOWN_MS = 10 * 60 * 1000;
+let gatewayBlockedUntil = 0;
+
+
 const Body = z.object({
   subjectId: z.string().uuid(),
   mode: z.enum(["ask", "mark", "insights", "exam", "challenge"]),
@@ -173,37 +179,44 @@ export const Route = createFileRoute("/api/study")({
         let upstream: Response | null = null;
         let source: "gateway" | "google" | "groq" = "gateway";
         let lastStatus = 0;
-        for (const model of MODEL_CHAIN) {
-          const res = await fetch(GATEWAY, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model,
-              temperature: 0,
-              top_p: 0.1,
-              stream: true,
-              messages: [
-                { role: "system", content: system },
-                ...priorMessages,
-                { role: "user", content: userContent },
-              ],
-            }),
-          });
-          lastStatus = res.status;
-          if (res.ok && res.body) {
-            upstream = res;
-            break;
+        // When the shared gateway has no credits, every extra attempt is pure
+        // latency — remember that and go straight to the personal key.
+        if (Date.now() > gatewayBlockedUntil) {
+          for (const model of MODEL_CHAIN) {
+            const res = await fetch(GATEWAY, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model,
+                temperature: 0,
+                top_p: 0.1,
+                stream: true,
+                messages: [
+                  { role: "system", content: system },
+                  ...priorMessages,
+                  { role: "user", content: userContent },
+                ],
+              }),
+            });
+            lastStatus = res.status;
+            if (res.ok && res.body) {
+              upstream = res;
+              break;
+            }
+            await res.body?.cancel();
+            // Out of credits / blocked: the whole gateway is unavailable, not
+            // just this model — stop trying and fall through immediately.
+            if (res.status === 402 || res.status === 403) {
+              gatewayBlockedUntil = Date.now() + GATEWAY_COOLDOWN_MS;
+              break;
+            }
+            if (res.status !== 429) break;
+            await new Promise((r) => setTimeout(r, 400));
           }
-          // Budget or rate limit on this model — try the next, cheaper one.
-          if (res.status !== 402 && res.status !== 429) break;
-          await res.body?.cancel();
-          if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
         }
 
-        // Allowance/rate-limit exhausted on the shared gateway — fall back to the
-        // project's own Gemini key so the user is never blocked.
-        // Any gateway failure (credits, rate limit, upstream error) falls back to the
-        // project's own Gemini key so a marking run never dead-ends.
+        // Shared gateway unavailable — fall back to the project's own Gemini key
+        // so a marking run never dead-ends.
         if (!upstream) {
           const googleKey = process.env["GEMINI_API_KEY"];
           if (googleKey) {
@@ -233,11 +246,16 @@ export const Route = createFileRoute("/api/study")({
               }
               lastStatus = res.status;
               await res.body?.cancel();
-              if (res.status !== 429 && res.status !== 503) break;
-              await new Promise((r) => setTimeout(r, 800));
+              // 404 = model retired for this key; 400 = unsupported request for
+              // this model. Both are per-model, so try the next one.
+              if (res.status !== 429 && res.status !== 503 && res.status !== 404 && res.status !== 400)
+                break;
+              if (res.status === 429 || res.status === 503)
+                await new Promise((r) => setTimeout(r, 800));
             }
           }
         }
+
 
         // Google key also exhausted — final fallback to the project's Groq key.
         // Groq speaks the same OpenAI-style SSE shape as the gateway, so the
@@ -271,8 +289,9 @@ export const Route = createFileRoute("/api/study")({
               }
               lastStatus = res.status;
               await res.body?.cancel();
-              if (res.status !== 429 && res.status !== 503) break;
-              await new Promise((r) => setTimeout(r, 800));
+              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
+              if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
+
             }
           }
         }
