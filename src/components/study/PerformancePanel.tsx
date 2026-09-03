@@ -79,7 +79,9 @@ export function PerformancePanel({ subjectId }: { subjectId: string }) {
           {latest.answer ? (
             <Markdown>{latest.answer}</Markdown>
           ) : latest.status === "error" ? (
-            <p className="text-sm text-destructive">{latest.error ?? "Something went wrong"}</p>
+            <p className="whitespace-pre-line text-sm text-destructive">
+              {latest.error ?? "Something went wrong"}
+            </p>
           ) : (
             <ThinkingStatus
               title="Analysing your performance…"

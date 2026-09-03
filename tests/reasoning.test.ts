@@ -26,7 +26,7 @@ const GATEWAY_CHAIN = [
   "google/gemini-2.5-flash",
   "google/gemini-2.5-flash-lite",
 ];
-const GOOGLE_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
+const GOOGLE_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"];
 
 function withoutEnvOverride<T>(fn: () => T): T {
   const previous = process.env["STUDY_REASONING_EFFORT"];
@@ -69,9 +69,11 @@ test("STUDY_REASONING_EFFORT overrides every mode, including off", () => {
 
 test("model family detection covers both chains", () => {
   assert.equal(isGemini3Family("google/gemini-3.6-flash"), true);
-  assert.equal(isGemini3Family("gemini-3.5-flash"), true);
+  assert.equal(isGemini3Family("gemini-3.5-flash-lite"), true);
   assert.equal(isGemini3Family("google/gemini-2.5-flash"), false);
   assert.equal(isGemini3Family("google/gemini-2.5-flash-lite"), false);
+  assert.equal(isGemini3Family("gemini-2.5-flash-lite"), false);
+  // Unversioned aliases are treated as 2.5-style, never as Gemini 3.
   assert.equal(isGemini3Family("gemini-flash-latest"), false);
 });
 

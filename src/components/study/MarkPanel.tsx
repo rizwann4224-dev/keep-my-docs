@@ -258,7 +258,9 @@ export function MarkPanel({ subjectId, subjectName }: { subjectId: string; subje
 
       {latest?.status === "error" && (
         <div className="rounded-xl border border-border bg-card p-6">
-          <p className="text-sm text-destructive">{latest.error ?? "Something went wrong"}</p>
+          <p className="whitespace-pre-line text-sm text-destructive">
+            {latest.error ?? "Something went wrong"}
+          </p>
         </div>
       )}
 

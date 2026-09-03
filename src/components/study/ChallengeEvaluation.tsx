@@ -154,7 +154,9 @@ export function ChallengeEvaluation({
             </>
           ) : latest.status === "error" ? (
             <>
-              <p className="text-sm text-destructive">{latest.error ?? "Something went wrong"}</p>
+              <p className="whitespace-pre-line text-sm text-destructive">
+                {latest.error ?? "Something went wrong"}
+              </p>
               <div className="flex gap-2">
                 <Button
                   size="sm"
