@@ -28,6 +28,12 @@ const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flas
 /** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
 const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 
+/** Once the shared gateway reports "no credits", skip it for a while — retrying
+ * it on every request only adds seconds of latency before the real answer. */
+const GATEWAY_COOLDOWN_MS = 10 * 60 * 1000;
+let gatewayBlockedUntil = 0;
+
+
 const Body = z.object({
   subjectId: z.string().uuid(),
   mode: z.enum(["ask", "mark", "insights", "exam", "challenge"]),
