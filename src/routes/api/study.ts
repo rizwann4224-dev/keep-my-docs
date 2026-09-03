@@ -237,12 +237,19 @@ export const Route = createFileRoute("/api/study")({
             servedModel = model;
             break;
           }
-          // Budget or rate limit on this model — try the next, cheaper one.
-          // 404 = this model id is not on the gateway; the next one may be.
-          if (res.status !== 402 && res.status !== 429 && res.status !== 404) break;
           await res.body?.cancel();
+          // Out of credits / blocked by policy — terminal for the whole
+          // gateway. Stop trying gateway models here and for the next 10
+          // minutes; the project keys below take over.
+          if (res.status === 402 || res.status === 403) {
+            gatewayBlockedUntil = Date.now() + 10 * 60_000;
+            break;
+          }
+          // Rate limit or unknown model id — the next model may still work.
+          if (res.status !== 429 && res.status !== 404) break;
           if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
         }
+
 
         // Allowance/rate-limit exhausted on the shared gateway — fall back to the
         // project's own Gemini key so the user is never blocked.
