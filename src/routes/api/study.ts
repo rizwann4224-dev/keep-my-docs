@@ -289,8 +289,9 @@ export const Route = createFileRoute("/api/study")({
               }
               lastStatus = res.status;
               await res.body?.cancel();
-              if (res.status !== 429 && res.status !== 503) break;
-              await new Promise((r) => setTimeout(r, 800));
+              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
+              if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
+
             }
           }
         }
