@@ -1,18 +1,18 @@
 # AI reasoning depth
 
-Every model call in this app asks for a specific amount of *thinking* (the model's
+Every model call in this app asks for a specific amount of _thinking_ (the model's
 internal reasoning budget), rather than leaving it at each provider's default.
 All of it is configured in one place: [`src/lib/reasoning.ts`](../src/lib/reasoning.ts).
 
 ## Depth per task
 
-| Mode        | Tier     | Why                                                     |
-| ----------- | -------- | ------------------------------------------------------- |
-| `mark`      | `high`   | A shallow marked answer is the one that costs marks.    |
-| `exam`      | `high`   | Scenario design needs several checks against the ledger.|
-| `challenge` | `high`   | Re-reviewing a disputed mark is the hardest judgement.  |
-| `ask`       | `medium` | Conversational — first token has to arrive quickly.     |
-| `insights`  | `medium` | Aggregation over attempts, no per-line verification.    |
+| Mode        | Tier     | Why                                                      |
+| ----------- | -------- | -------------------------------------------------------- |
+| `mark`      | `high`   | A shallow marked answer is the one that costs marks.     |
+| `exam`      | `high`   | Scenario design needs several checks against the ledger. |
+| `challenge` | `high`   | Re-reviewing a disputed mark is the hardest judgement.   |
+| `ask`       | `medium` | Conversational — first token has to arrive quickly.      |
+| `insights`  | `medium` | Aggregation over attempts, no per-line verification.     |
 
 Override every mode at once with an environment variable:
 
@@ -27,9 +27,9 @@ STUDY_REASONING_EFFORT=high   # low | medium | high | xhigh | off
 The same tier is translated per provider, because the dialects are mutually
 exclusive — sending both Gemini keys in one request is a hard `400`:
 
-- **Gemini 3.x** (`gemini-3.6-flash`, `gemini-3.5-flash`, …) →
+- **Gemini 3.x** (`gemini-3.6-flash`, `gemini-3.5-flash-lite`, …) →
   `generationConfig.thinkingConfig.thinkingLevel: "low" | "medium" | "high"`.
-  Sampling overrides are *not* sent: Google documents that Gemini 3's reasoning
+  Sampling overrides are _not_ sent: Google documents that Gemini 3's reasoning
   is tuned for the default `temperature` / `top_p` / `top_k`.
 - **Gemini 2.5.x** (`gemini-2.5-flash`, `-lite`, unversioned aliases such as
   `gemini-flash-latest`) → `thinkingConfig.thinkingBudget` in tokens

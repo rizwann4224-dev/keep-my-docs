@@ -17,8 +17,10 @@ import {
   geminiGenerationConfig,
   groqRequestParams,
   openAiRequestParams,
+  openAiSamplingParams,
   type ReasoningMode,
 } from "@/lib/reasoning";
+import { fetchWithTimeout } from "@/lib/ai-fetch";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -39,10 +41,31 @@ const MODEL_CHAIN = [
 const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", ...MODEL_CHAIN];
 
 /** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
-const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"];
+const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"];
 
 /** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
 const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+
+/**
+ * When the shared Lovable gateway reports 402 (credits exhausted) or 403
+ * (blocked), that applies to every model on it. Remember it for a few minutes
+ * so later requests skip the gateway entirely and go straight to the project's
+ * own Gemini/Groq keys instead of burning seconds on doomed calls.
+ */
+let gatewayFailure: { status: number; until: number } | null = null;
+
+/** Hard bound on how long a single provider call may wait for response headers. */
+const REQUEST_TIMEOUT_MS = 45_000;
+
+/** Total budget for finding a working provider (gateway → Google → Groq). */
+const ACQUIRE_DEADLINE_MS = 120_000;
+
+/** Short, human-readable description of a failed provider response, including
+ *  the provider's own error body so the real cause is visible to the user. */
+async function describeHttpFailure(label: string, res: Response): Promise<string> {
+  const body = (await res.text().catch(() => "")).trim().slice(0, 240);
+  return `${label}: HTTP ${res.status}${body ? ` — ${body}` : ""}`;
+}
 
 const Body = z.object({
   subjectId: z.string().uuid(),
@@ -189,7 +212,13 @@ export const Route = createFileRoute("/api/study")({
         let upstream: Response | null = null;
         let source: "gateway" | "google" | "groq" = "gateway";
         let servedModel = "";
-        let lastStatus = 0;
+        // Why each provider failed, so the final error names the real cause
+        // instead of a blanket "unavailable" — e.g. the gateway running out of
+        // credits while a GEMINI_API_KEY that IS set gets rejected by Google.
+        let gatewayStatus = 0;
+        let gatewayError = "";
+        let googleError = "";
+        let groqError = "";
 
         // Marking and challenges run on the Pro-tier chain — critical
         // evaluation of an exam script is a reasoning task, and the marking
@@ -197,46 +226,80 @@ export const Route = createFileRoute("/api/study")({
         // it. Other modes keep the fast flash chain.
         const chain =
           data.mode === "mark" || data.mode === "challenge" ? MODEL_CHAIN_MARK : MODEL_CHAIN;
-        for (const model of chain) {
+        // Total budget for finding a working provider this request; after that
+        // the caller gets a clean timeout instead of an endless wait.
+        const deadline = Date.now() + ACQUIRE_DEADLINE_MS;
+        // Credit exhaustion (402) / policy block (403) is workspace-wide, not
+        // per-model: once seen, every further gateway model returns the same.
+        // Skip the whole gateway for a while and go straight to the project's
+        // own keys, so marking never stalls or surfaces a 402.
+        const gatewaySkipped = gatewayFailure !== null && gatewayFailure.until > Date.now();
+        if (gatewaySkipped) gatewayStatus = gatewayFailure!.status;
+        for (const model of gatewaySkipped ? [] : chain) {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) break;
+
           // openAiRequestParams adds the model's reasoning tier (and the old
           // sampling, for the non-Gemini-3 models) — the thinking budget that
           // makes a marking run deeper, not just longer.
           const post = (withReasoning: boolean) =>
-            fetch(GATEWAY, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model,
-                stream: true,
-                ...(withReasoning
-                  ? openAiRequestParams(model, data.mode)
-                  : { temperature: 0, top_p: 0.1 }),
-                messages: [
-                  { role: "system", content: system },
-                  ...priorMessages,
-                  { role: "user", content: userContent },
-                ],
-              }),
-            });
+            fetchWithTimeout(
+              GATEWAY,
+              {
+                method: "POST",
+                headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  model,
+                  stream: true,
+                  ...(withReasoning
+                    ? openAiRequestParams(model, data.mode)
+                    : openAiSamplingParams(model)),
+                  messages: [
+                    { role: "system", content: system },
+                    ...priorMessages,
+                    { role: "user", content: userContent },
+                  ],
+                }),
+              },
+              Math.min(REQUEST_TIMEOUT_MS, remaining),
+            );
 
-          let res = await post(true);
-          // A gateway that does not know `reasoning_effort` answers 400/422.
-          // Retry once without it instead of losing the model over a knob.
-          if (res.status === 400 || res.status === 422) {
-            await res.body?.cancel();
-            res = await post(false);
+          let res: Response;
+          try {
+            res = await post(true);
+            // A gateway that does not know `reasoning_effort` answers 400/422.
+            // Retry once without it instead of losing the model over a knob.
+            if (res.status === 400 || res.status === 422) {
+              await res.body?.cancel();
+              res = await post(false);
+            }
+          } catch {
+            // Timed out or network failure — the whole gateway host is
+            // unreachable, not just this model. Stop and fall through.
+            gatewayStatus = 504;
+            gatewayError = "Shared gateway: timed out or unreachable";
+            break;
           }
-          lastStatus = res.status;
+          gatewayStatus = res.status;
           if (res.ok && res.body) {
             upstream = res;
             servedModel = model;
             break;
           }
-          // Budget or rate limit on this model — try the next, cheaper one.
-          // 404 = this model id is not on the gateway; the next one may be.
-          if (res.status !== 402 && res.status !== 429 && res.status !== 404) break;
-          await res.body?.cancel();
-          if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
+          gatewayError = await describeHttpFailure("Shared gateway", res);
+          // Out of credits / blocked by policy — terminal for the whole
+          // gateway. Stop trying gateway models here and for the next 10
+          // minutes; the project keys below take over.
+          if (res.status === 402 || res.status === 403) {
+            gatewayFailure = { status: res.status, until: Date.now() + 10 * 60_000 };
+            break;
+          }
+          // 429 is a workspace-wide rate limit: every other model on the same
+          // gateway returns the same, so stop instead of burning seconds.
+          if (res.status === 429) break;
+          // 404 = unknown/retired model id — the next model may still work.
+          if (res.status === 404) continue;
+          break;
         }
 
         // Allowance/rate-limit exhausted on the shared gateway — fall back to the
@@ -247,8 +310,10 @@ export const Route = createFileRoute("/api/study")({
           const googleKey = process.env["GEMINI_API_KEY"];
           if (googleKey) {
             for (const model of GOOGLE_MODEL_CHAIN) {
+              const remaining = deadline - Date.now();
+              if (remaining <= 0) break;
               const post = (mode: ReasoningMode) =>
-                fetch(
+                fetchWithTimeout(
                   `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,
                   {
                     method: "POST",
@@ -265,16 +330,23 @@ export const Route = createFileRoute("/api/study")({
                       generationConfig: geminiGenerationConfig(model, mode),
                     }),
                   },
+                  Math.min(REQUEST_TIMEOUT_MS, remaining),
                 );
 
-              let res = await post(data.mode);
-              // 400 here almost always means this model rejects the thinking
-              // config (an alias that resolves to a 2.5 model, or a level this
-              // model does not offer). Retry once with thinking off before
-              // falling through to a weaker model.
-              if (res.status === 400) {
-                await res.body?.cancel();
-                res = await post("off");
+              let res: Response;
+              try {
+                res = await post(data.mode);
+                // 400 here almost always means this model rejects the thinking
+                // config (an alias that resolves to a 2.5 model, or a level this
+                // model does not offer). Retry once with thinking off before
+                // falling through to a weaker model.
+                if (res.status === 400) {
+                  await res.body?.cancel();
+                  res = await post("off");
+                }
+              } catch {
+                googleError = "Gemini fallback: timed out or unreachable";
+                break;
               }
               if (res.ok && res.body) {
                 upstream = res;
@@ -282,8 +354,7 @@ export const Route = createFileRoute("/api/study")({
                 servedModel = model;
                 break;
               }
-              lastStatus = res.status;
-              await res.body?.cancel();
+              googleError = await describeHttpFailure("Gemini fallback", res);
               // 404 = model retired for this key; 400 = unsupported request for
               // this model. Both are per-model, so try the next one.
               if (
@@ -306,33 +377,44 @@ export const Route = createFileRoute("/api/study")({
           const groqKey = process.env["GROQ_API_KEY"];
           if (groqKey) {
             for (const model of GROQ_MODEL_CHAIN) {
-              const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${groqKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  model,
-                  stream: true,
-                  // llama has no reasoning tier; a reasoning-capable Groq model
-                  // would get one here. See groqRequestParams.
-                  ...groqRequestParams(model, data.mode),
-                  messages: [
-                    { role: "system", content: system },
-                    ...priorMessages,
-                    { role: "user", content: userContent },
-                  ],
-                }),
-              });
+              const remaining = deadline - Date.now();
+              if (remaining <= 0) break;
+              let res: Response;
+              try {
+                res = await fetchWithTimeout(
+                  "https://api.groq.com/openai/v1/chat/completions",
+                  {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Bearer ${groqKey}`,
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      model,
+                      stream: true,
+                      // llama has no reasoning tier; a reasoning-capable Groq model
+                      // would get one here. See groqRequestParams.
+                      ...groqRequestParams(model, data.mode),
+                      messages: [
+                        { role: "system", content: system },
+                        ...priorMessages,
+                        { role: "user", content: userContent },
+                      ],
+                    }),
+                  },
+                  Math.min(REQUEST_TIMEOUT_MS, remaining),
+                );
+              } catch {
+                groqError = "Groq fallback: timed out or unreachable";
+                break;
+              }
               if (res.ok && res.body) {
                 upstream = res;
                 source = "groq";
                 servedModel = model;
                 break;
               }
-              lastStatus = res.status;
-              await res.body?.cancel();
+              groqError = await describeHttpFailure("Groq fallback", res);
               if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
               if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
             }
@@ -340,11 +422,44 @@ export const Route = createFileRoute("/api/study")({
         }
 
         if (!upstream) {
-          if (lastStatus === 429)
-            return new Response("The AI is busy right now — try again in a few seconds.", {
-              status: 429,
-            });
-          return new Response(`AI request failed (${lastStatus})`, { status: 502 });
+          // Every path tried and failed. The gateway status decides the HTTP
+          // code (402/429 mirror the gateway's), but the message reports the
+          // actual failures of BOTH the gateway and the configured fallbacks,
+          // so "GEMINI_API_KEY is set but still failing" is finally visible.
+          const reasons = [
+            gatewayStatus === 402 ? gatewayError || "Shared gateway: credits exhausted (402)" : "",
+            gatewayStatus === 403 ? gatewayError || "Shared gateway: blocked (403)" : "",
+            gatewayStatus === 429 ? gatewayError || "Shared gateway: rate limited (429)" : "",
+            gatewayStatus === 504 ? gatewayError || "Shared gateway: timed out" : "",
+            gatewayError &&
+            gatewayStatus !== 402 &&
+            gatewayStatus !== 403 &&
+            gatewayStatus !== 429 &&
+            gatewayStatus !== 504
+              ? gatewayError
+              : "",
+            googleError || "",
+            groqError || "",
+          ].filter(Boolean);
+
+          let message =
+            "The AI providers are unavailable right now — please try again in a moment.";
+          if (reasons.length > 0) {
+            message =
+              "The AI providers are unavailable right now — please try again in a moment.\n\nWhy this request failed:\n" +
+              reasons.map((r) => `• ${r}`).join("\n");
+            if (gatewayStatus === 402)
+              message +=
+                "\n\nThe shared Lovable AI allowance has run out of credits. Add credits / enable auto top-up in Lovable (Settings → Plans & credit usage), or fix the Gemini fallback below.";
+            if (!googleError && !process.env["GEMINI_API_KEY"])
+              message +=
+                "\n\nNote: no GEMINI_API_KEY is set in the deployment, so the Google fallback was never attempted.";
+            if (!groqError && !process.env["GROQ_API_KEY"])
+              message += "\n\nNote: no GROQ_API_KEY is set in the deployment.";
+          }
+
+          const status = gatewayStatus === 402 ? 402 : gatewayStatus === 429 ? 429 : 502;
+          return new Response(message, { status });
         }
 
         const encoder = new TextEncoder();
