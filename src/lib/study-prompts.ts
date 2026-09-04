@@ -248,7 +248,27 @@ ${usable
     takeCompanions(chunk);
   }
 
-  if (picked.size === 0) return inventory + buildSourceBlock(usable);
+  if (picked.size === 0) return inventory + buildCoverageBlock(usable, budget);
+
+  // Weak keyword match (little of the budget used, or few matching passages): the
+  // query wording simply doesn't appear in the sources even though the material
+  // does. Top up with even coverage instead of reporting "not found".
+  if (used < budget * 0.5 && ranked.length < chunks.length * 0.25) {
+    const spare = budget - used;
+    const coverage = buildCoverageBlock(usable, spare);
+    if (coverage !== "NO_SOURCE_TEXT_AVAILABLE") {
+      return (
+        inventory +
+        [...picked.values()]
+          .sort((a, b) => (a.doc === b.doc ? a.idx - b.idx : a.doc.localeCompare(b.doc)))
+          .map((c) => `<<<SOURCE: ${c.doc} (extract ${c.idx + 1})>>>\n${c.text}\n<<<END EXTRACT>>>`)
+          .join("\n\n") +
+        "\n\n" +
+        coverage
+      );
+    }
+  }
+
 
   return (
     inventory +
