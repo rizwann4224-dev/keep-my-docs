@@ -1,8 +1,11 @@
 // Client-side document text extraction. Browser-only: call from event handlers.
 
-const MAX_CHARS = 1_200_000;
-const OCR_MAX_PAGES = 80;
-const OCR_BATCH = 4;
+// Big enough for multi-year indexed past-papers compilations. Truncating here was
+// silently dropping the tail pages of long documents, which then surfaced as
+// "not found in your sources".
+const MAX_CHARS = 8_000_000;
+/** Scanned pages OCR'd concurrently — one page per request keeps the mapping exact. */
+const OCR_CONCURRENCY = 4;
 /** A text-layer page with fewer usable characters than this is treated as scanned. */
 const MIN_PAGE_CHARS = 120;
 
@@ -116,30 +119,25 @@ async function extractPdfSmart(
     if (text.replace(/\s/g, "").length < MIN_PAGE_CHARS) scanned.push(pageNumber);
   }
 
-  // Only the pages that genuinely have no text layer are sent to OCR.
+  // OCR every page that has no usable text layer. Each page is sent on its own so
+  // its transcription lands on the right page — the old code sent pages in batches
+  // and attached the whole batch's text to the first page, silently dropping the
+  // rest, and stopped after 80 scanned pages.
   if (ocr && scanned.length > 0) {
-    const targets = scanned.slice(0, OCR_MAX_PAGES);
-    onProgress?.(`Scanned pages detected — reading ${targets.length} with OCR…`);
-    const batches: number[][] = [];
-    for (let i = 0; i < targets.length; i += OCR_BATCH) {
-      batches.push(targets.slice(i, i + OCR_BATCH));
-    }
-    const results = await Promise.all(
-      batches.map(async (batch) => {
-        const images: string[] = [];
-        for (const pageNumber of batch) {
-          const image = await renderPage(doc, pageNumber);
-          if (image) images.push(image);
-        }
-        if (!images.length) return { batch, text: "" };
-        return { batch, text: await ocr(images) };
-      }),
-    );
-    for (const { batch, text } of results) {
-      if (!text.trim()) continue;
-      // OCR returns the batch as one block; attach it to the first page of the batch.
-      pages[(batch[0] ?? 1) - 1] = text;
-    }
+    const total = scanned.length;
+    let done = 0;
+    onProgress?.(`Scanned pages detected — reading ${total} with OCR…`);
+    await runPool(scanned, OCR_CONCURRENCY, async (pageNumber) => {
+      const image = await renderPage(doc, pageNumber);
+      if (image) {
+        const text = await ocr([image]);
+        if (text.trim()) pages[pageNumber - 1] = text.trim();
+      }
+      done += 1;
+      if (done % 5 === 0 || done === total) {
+        onProgress?.(`Reading scanned page ${done} of ${total}…`);
+      }
+    });
   }
 
   const out = pages
@@ -147,6 +145,19 @@ async function extractPdfSmart(
     .filter(Boolean)
     .join("\n\n");
   return out.slice(0, MAX_CHARS);
+}
+
+/** Run `task` over `items` with at most `limit` in flight at once. */
+async function runPool<T>(items: T[], limit: number, task: (item: T) => Promise<void>) {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const item = items[next++];
+      if (item === undefined) return;
+      await task(item);
+    }
+  });
+  await Promise.all(workers);
 }
 
 async function renderPage(
