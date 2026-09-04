@@ -15,9 +15,29 @@ export async function fetchWithTimeout(
   timeoutMs: number,
 ): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error("AI request timed out")), timeoutMs);
+  // Prefer a clear Error reason so callers can tell timeout apart from other aborts.
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`AI request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
   try {
+    // Honour a caller-supplied signal as well (e.g. request cancellation).
+    const outer = init.signal;
+    if (outer) {
+      if (outer.aborted) controller.abort(outer.reason);
+      else {
+        outer.addEventListener("abort", () => controller.abort(outer.reason), { once: true });
+      }
+    }
     return await fetch(input, { ...init, signal: controller.signal });
+  } catch (err) {
+    // Normalize AbortError into a plain Error with the timeout message so
+    // provider chains can log "timed out after Nms" instead of a bare AbortError.
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(controller.signal.reason instanceof Error
+        ? controller.signal.reason.message
+        : `AI request timed out after ${timeoutMs}ms`);
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }

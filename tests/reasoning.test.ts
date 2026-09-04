@@ -29,9 +29,10 @@ const GATEWAY_CHAIN = [
 // Mirrors GOOGLE_MODEL_CHAIN in src/routes/api/study.ts — keep in sync.
 const GOOGLE_CHAIN = [
   "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
   "gemini-2.0-flash",
+  "gemini-2.5-flash-lite",
   "gemini-flash-latest",
+  "gemini-2.5-pro",
 ];
 function withoutEnvOverride<T>(fn: () => T): T {
   const previous = process.env["STUDY_REASONING_EFFORT"];

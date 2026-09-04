@@ -18,9 +18,10 @@ const MODEL_CHAIN = [
 /** Project's own Gemini key (direct Google API) — FIRST priority on every request. */
 const GOOGLE_MODEL_CHAIN = [
   "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
   "gemini-2.0-flash",
+  "gemini-2.5-flash-lite",
   "gemini-flash-latest",
+  "gemini-2.5-pro",
 ];
 
 /**
@@ -42,8 +43,11 @@ export const Route = createFileRoute("/api/public/icap")({
         if (!parsed.success) return new Response("Bad request", { status: 400 });
         const { system, user, tokens } = parsed.data;
 
-        const apiKey = process.env["LOVABLE_API_KEY"];
-        const googleKey = process.env["GEMINI_API_KEY"];
+        const apiKey = process.env["LOVABLE_API_KEY"]?.trim() || undefined;
+        const googleKey =
+          process.env["GEMINI_API_KEY"]?.trim() ||
+          process.env["GOOGLE_API_KEY"]?.trim() ||
+          undefined;
         let lastStatus = 0;
         let lastBody = "";
         let googleTried = false;

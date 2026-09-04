@@ -40,11 +40,25 @@ const MODEL_CHAIN = [
  */
 const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", ...MODEL_CHAIN];
 
-/** Project's own Gemini key (direct Google API) — FIRST priority on every request. */
+/**
+ * Project's own Gemini key (direct Google API) — FIRST priority on every request.
+ * Prefer widely-available Flash models first so a free AI Studio key always has
+ * something to hit; Pro is tried after for mark/challenge quality.
+ */
 const GOOGLE_MODEL_CHAIN = [
   "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
   "gemini-2.0-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-flash-latest",
+  "gemini-2.5-pro",
+];
+
+/** Extra Pro-first chain for mark/challenge when a Gemini key is set. */
+const GOOGLE_MODEL_CHAIN_MARK = [
+  "gemini-2.5-pro",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-2.5-flash-lite",
   "gemini-flash-latest",
 ];
 
@@ -68,8 +82,15 @@ let gatewayFailure: { status: number; until: number } | null = null;
 /** Hard bound on how long a single provider call may wait for response headers. */
 const REQUEST_TIMEOUT_MS = 45_000;
 
-/** Total budget for finding a working provider (gateway → Google → Groq). */
-const ACQUIRE_DEADLINE_MS = 120_000;
+/**
+ * Gemini streamGenerateContent with a large system prompt + thinking can take
+ * longer than a simple chat completion to return headers. Give it more room so
+ * a working key is not abandoned as "timed out or unreachable".
+ */
+const GEMINI_TIMEOUT_MS = 90_000;
+
+/** Total budget for finding a working provider (Gemini → gateway → Groq → Grok). */
+const ACQUIRE_DEADLINE_MS = 180_000;
 
 /** Short, human-readable description of a failed provider response, including
  *  the provider's own error body so the real cause is visible to the user. */
@@ -223,7 +244,9 @@ export const Route = createFileRoute("/api/study")({
             : [];
 
         let upstream: Response | null = null;
-        let source: "gateway" | "google" | "groq" | "grok" = "gateway";
+        // "google-plain" = non-streaming generateContent wrapped as raw text bytes
+        // (no SSE framing). Everything else is OpenAI-style SSE except "google".
+        let source: "gateway" | "google" | "google-plain" | "groq" | "grok" = "gateway";
         let servedModel = "";
         // Why each provider failed, so the final error names the real cause
         // instead of a blanket "unavailable" — e.g. the gateway running out of
@@ -255,71 +278,165 @@ export const Route = createFileRoute("/api/study")({
 
         // 1) FIRST PRIORITY — the project's own Gemini key (user-provided API key,
         // e.g. a Google AI Studio key). Tried before the shared gateway on every
-        // request; any failure falls through to the gateway below.
+        // request. Never abandon the whole chain on a single model timeout —
+        // keep walking every model, and on timeout retry once with thinking off
+        // (thinking is what makes stream headers slow on large mark prompts).
         if (!upstream) {
           const googleKey = readKey("GEMINI_API_KEY", "GOOGLE_API_KEY");
           if (googleKey) {
-            for (const model of GOOGLE_MODEL_CHAIN) {
-              const remaining = deadline - Date.now();
-              if (remaining <= 0) break;
-              const post = (mode: ReasoningMode) =>
-                fetchWithTimeout(
-                  `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,
+            console.error(
+              `[study] Gemini key present (${googleKey.slice(0, 6)}…${googleKey.slice(-4)}, len=${googleKey.length}) — trying direct Google API first`,
+            );
+            const googleChain =
+              data.mode === "mark" || data.mode === "challenge"
+                ? GOOGLE_MODEL_CHAIN_MARK
+                : GOOGLE_MODEL_CHAIN;
+
+            const geminiBody = (model: string, mode: ReasoningMode) =>
+              JSON.stringify({
+                systemInstruction: { parts: [{ text: system }] },
+                contents: [
+                  ...priorMessages.map((m) => ({
+                    role: m.role === "assistant" ? "model" : "user",
+                    parts: [{ text: m.content }],
+                  })),
+                  { role: "user", parts: [{ text: userContent }] },
+                ],
+                generationConfig: geminiGenerationConfig(model, mode),
+              });
+
+            const postStream = (model: string, mode: ReasoningMode, timeoutMs: number) =>
+              fetchWithTimeout(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "x-goog-api-key": googleKey },
+                  body: geminiBody(model, mode),
+                },
+                timeoutMs,
+              );
+
+            /** Non-streaming fallback when SSE headers hang — still returns the full answer. */
+            const postOnce = async (
+              model: string,
+              mode: ReasoningMode,
+              timeoutMs: number,
+            ): Promise<Response | null> => {
+              try {
+                const res = await fetchWithTimeout(
+                  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
                   {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "x-goog-api-key": googleKey },
-                    body: JSON.stringify({
-                      systemInstruction: { parts: [{ text: system }] },
-                      contents: [
-                        ...priorMessages.map((m) => ({
-                          role: m.role === "assistant" ? "model" : "user",
-                          parts: [{ text: m.content }],
-                        })),
-                        { role: "user", parts: [{ text: userContent }] },
-                      ],
-                      generationConfig: geminiGenerationConfig(model, mode),
-                    }),
+                    body: geminiBody(model, mode),
                   },
-                  Math.min(REQUEST_TIMEOUT_MS, remaining),
+                  timeoutMs,
                 );
-
-              let res: Response;
-              try {
-                res = await post(data.mode);
-                // 400 here almost always means this model rejects the thinking
-                // config (an alias that resolves to a 2.5 model, or a level this
-                // model does not offer). Retry once with thinking off before
-                // falling through to a weaker model.
-                if (res.status === 400) {
-                  await res.body?.cancel();
-                  res = await post("off");
+                if (!res.ok) {
+                  googleError = await describeHttpFailure(`Gemini fallback (${model})`, res);
+                  return null;
                 }
+                const json = (await res.json()) as {
+                  candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[];
+                  error?: { message?: string };
+                };
+                if (json.error?.message) {
+                  googleError = `Gemini fallback (${model}): ${json.error.message}`;
+                  return null;
+                }
+                const text = (json.candidates?.[0]?.content?.parts ?? [])
+                  .filter((p) => !p.thought)
+                  .map((p) => p.text ?? "")
+                  .join("")
+                  .trim();
+                if (!text) {
+                  googleError = `Gemini fallback (${model}): empty response`;
+                  return null;
+                }
+                // Wrap the plain text as a ReadableStream so the rest of the
+                // handler can treat it like a streaming upstream.
+                const encoder = new TextEncoder();
+                const body = new ReadableStream<Uint8Array>({
+                  start(controller) {
+                    controller.enqueue(encoder.encode(text));
+                    controller.close();
+                  },
+                });
+                return new Response(body, { status: 200 });
               } catch (err) {
-                // Per-model timeout/network error — try the next model instead of
-                // abandoning the whole Gemini chain on the first hang.
                 const why = err instanceof Error ? err.message : "timed out or unreachable";
                 googleError = `Gemini fallback (${model}): ${why}`;
-                continue;
+                return null;
               }
+            };
+
+            for (const model of googleChain) {
+              const remaining = deadline - Date.now();
+              if (remaining <= 0) break;
+              const timeoutMs = Math.min(GEMINI_TIMEOUT_MS, remaining);
+
+              let res: Response | null = null;
+              let usedNonStream = false;
+
+              // Attempt 1: streaming with the task's normal reasoning depth.
+              try {
+                res = await postStream(model, data.mode, timeoutMs);
+                if (res.status === 400) {
+                  await res.body?.cancel();
+                  // Attempt 2: streaming with thinking off (config rejection).
+                  res = await postStream(model, "off", timeoutMs);
+                }
+              } catch (err) {
+                const why = err instanceof Error ? err.message : "timed out or unreachable";
+                googleError = `Gemini fallback (${model}): ${why}`;
+                // Attempt 3: same model, thinking off, still streaming — thinking
+                // is the usual reason headers take so long on mark prompts.
+                try {
+                  res = await postStream(model, "off", timeoutMs);
+                } catch (err2) {
+                  const why2 = err2 instanceof Error ? err2.message : "timed out or unreachable";
+                  googleError = `Gemini fallback (${model}): ${why2}`;
+                  // Attempt 4: non-streaming generateContent (often faster to first byte).
+                  const once = await postOnce(model, "off", timeoutMs);
+                  if (once) {
+                    res = once;
+                    usedNonStream = true;
+                  } else {
+                    continue; // next model
+                  }
+                }
+              }
+
+              if (!res) continue;
+
               if (res.ok && res.body) {
+                if (usedNonStream) {
+                  // Non-stream path already produced plain text bytes — tag it so
+                  // the stream parser below does not look for SSE `data:` lines.
+                  source = "google-plain";
+                } else {
+                  source = "google";
+                }
                 upstream = res;
-                source = "google";
                 servedModel = model;
+                console.error(`[study] Gemini served via ${model} (${source})`);
                 break;
               }
+
               googleError = await describeHttpFailure(`Gemini fallback (${model})`, res);
-              // 404 = model retired for this key; 400 = unsupported request for
-              // this model. Both are per-model, so try the next one.
-              if (
-                res.status !== 429 &&
-                res.status !== 503 &&
-                res.status !== 404 &&
-                res.status !== 400
-              )
-                break;
-              if (res.status === 429 || res.status === 503)
+              // Keep walking the chain on per-model problems (404 unknown id,
+              // 400 bad config, 429/503 transient). Only stop on auth / hard
+              // client errors that every model will also hit (401/403).
+              if (res.status === 401 || res.status === 403) break;
+              if (res.status === 429 || res.status === 503) {
                 await new Promise((r) => setTimeout(r, 800));
+              }
+              // Everything else (404/400/5xx): try the next model.
             }
+          } else {
+            console.error(
+              "[study] No GEMINI_API_KEY / GOOGLE_API_KEY in process.env — Gemini path skipped",
+            );
           }
         }
 
@@ -492,7 +609,8 @@ export const Route = createFileRoute("/api/study")({
                   const why = err instanceof Error ? err.message : "timed out or unreachable";
                   groqError = `Groq fallback (${model}): ${why}`;
                 }
-              }              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
+              }
+              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
               if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
             }
           }
@@ -620,6 +738,19 @@ export const Route = createFileRoute("/api/study")({
           async start(controller) {
             const reader = upstream.body!.getReader();
             try {
+              // Non-streaming Gemini fallback already produced plain UTF-8 text —
+              // forward it as-is, no SSE parse.
+              if (source === "google-plain") {
+                for (;;) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  if (value) {
+                    full += decoder.decode(value, { stream: true });
+                    controller.enqueue(value);
+                  }
+                }
+                full += decoder.decode();
+              } else {
               for (;;) {
                 const { done, value } = await reader.read();
                 if (done) break;
@@ -656,6 +787,7 @@ export const Route = createFileRoute("/api/study")({
                   }
                 }
               }
+              } // end SSE branch
             } finally {
               // Save BEFORE closing the stream: once the response closes the
               // worker can be torn down and a pending insert would be dropped.
