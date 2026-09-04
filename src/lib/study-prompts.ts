@@ -95,6 +95,11 @@ ${usable
   const total = usable.reduce((n, d) => n + (d.extracted_text ?? "").length, 0);
   if (total <= budget) return inventory + buildSourceBlock(usable);
 
+  // Broad survey questions have no keywords to retrieve on — give even coverage of
+  // every document instead, so the model can actually enumerate what is there.
+  if (isSurveyQuery(query)) return inventory + buildCoverageBlock(usable, budget);
+
+
   const lowerQuery = query.toLowerCase();
   const base = Array.from(
     new Set(
