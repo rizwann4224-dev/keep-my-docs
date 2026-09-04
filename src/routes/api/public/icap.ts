@@ -15,10 +15,10 @@ const MODEL_CHAIN = [
   "google/gemini-2.5-flash-lite",
 ];
 
-/** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
+/** Project's own Gemini key (direct Google API) — FIRST priority on every request. */
 const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"];
 
-/** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
+/** Project's Groq key — last resort after Gemini and the gateway. */
 const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 
 const Body = z.object({
@@ -36,13 +36,62 @@ export const Route = createFileRoute("/api/public/icap")({
         const { system, user, tokens } = parsed.data;
 
         const apiKey = process.env["LOVABLE_API_KEY"];
+        const googleKey = process.env["GEMINI_API_KEY"];
         let lastStatus = 0;
         let lastBody = "";
+        let googleTried = false;
 
         // Thinking tokens are billed against the output cap, so a cap sized for
         // the answer alone would be truncated mid-sentence.
         const maxOut = Math.round((tokens ?? 1000) * 1.8) + thinkingHeadroom("ask");
 
+        // 1) FIRST PRIORITY — the project's own Gemini key (user-provided API key,
+        // e.g. a Google AI Studio key). A success returns immediately; any failure
+        // falls through to the shared gateway below so the request still has a chance.
+        if (googleKey) {
+          googleTried = true;
+          for (const model of GOOGLE_MODEL_CHAIN) {
+            const res = await fetchWithTimeout(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-goog-api-key": googleKey,
+                },
+                body: JSON.stringify({
+                  system_instruction: { parts: [{ text: system }] },
+                  contents: [{ role: "user", parts: [{ text: user }] }],
+                  generationConfig: {
+                    maxOutputTokens: maxOut,
+                    ...(geminiThinkingConfig(model, "ask") ?? {}),
+                  },
+                }),
+              },
+              REQUEST_TIMEOUT_MS,
+            );
+            if (res.ok) {
+              const json = (await res.json()) as {
+                candidates?: { content?: { parts?: { text?: string }[] } }[];
+              };
+              const text = (json.candidates?.[0]?.content?.parts ?? [])
+                .map((p) => p.text ?? "")
+                .join("\n")
+                .trim();
+              if (text) return Response.json({ text, source: "google", model });
+              lastStatus = 502;
+              lastBody = "Empty reply from the fallback model.";
+              continue;
+            }
+            lastStatus = res.status;
+            lastBody = await res.text().catch(() => "");
+            if (res.status !== 429 && res.status !== 503) break;
+            await new Promise((r) => setTimeout(r, 800));
+          }
+        }
+
+        // 2) Shared Lovable gateway — tried when no Gemini key is set, or when the
+        // Gemini key failed above.
         if (apiKey) {
           for (const model of MODEL_CHAIN) {
             const post = (withReasoning: boolean) =>
@@ -89,14 +138,14 @@ export const Route = createFileRoute("/api/public/icap")({
             if (res.status !== 402 && res.status !== 429) break;
             if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
           }
-        } else {
+        } else if (!googleTried) {
           lastStatus = 401;
           lastBody = "AI is not configured.";
         }
 
-        // Shared allowance exhausted or rate limited — fall back to the free key.
-        if (lastStatus === 402 || lastStatus === 429 || lastStatus === 401) {
-          const googleKey = process.env["GEMINI_API_KEY"];
+        // The Gemini key was already tried first above — this is only a safety net
+        // for paths that never attempted it (i.e. no key existed at step 1).
+        if (!googleTried && (lastStatus === 402 || lastStatus === 429 || lastStatus === 401)) {
           if (googleKey) {
             for (const model of GOOGLE_MODEL_CHAIN) {
               const res = await fetchWithTimeout(
