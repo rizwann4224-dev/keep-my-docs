@@ -41,10 +41,22 @@ const MODEL_CHAIN = [
 const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", ...MODEL_CHAIN];
 
 /** Project's own Gemini key (direct Google API) — FIRST priority on every request. */
-const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"];
+const GOOGLE_MODEL_CHAIN = [
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-flash-latest",
+];
 
-/** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
-const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+/**
+ * Second personal-key fallback (direct Groq API) used when Google is also exhausted.
+ * Groq shut down the llama-3.1 / llama-3.3 chat SKUs on 2026-08-16 for free and
+ * developer tiers — use the current production replacements only.
+ */
+const GROQ_MODEL_CHAIN = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
+
+/** Third personal-key fallback (direct xAI / Grok API). */
+const GROK_MODEL_CHAIN = ["grok-4-fast-reasoning", "grok-4-fast-non-reasoning", "grok-3"];
 
 /**
  * When the shared Lovable gateway reports 402 (credits exhausted) or 403
@@ -53,7 +65,6 @@ const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
  * own Gemini/Groq keys instead of burning seconds on doomed calls.
  */
 let gatewayFailure: { status: number; until: number } | null = null;
-
 /** Hard bound on how long a single provider call may wait for response headers. */
 const REQUEST_TIMEOUT_MS = 45_000;
 
@@ -90,14 +101,13 @@ export const Route = createFileRoute("/api/study")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apiKey = process.env["LOVABLE_API_KEY"];
+        const apiKey = process.env["LOVABLE_API_KEY"]?.trim() || undefined;
         const url = process.env["SUPABASE_URL"];
         const anon = process.env["SUPABASE_PUBLISHABLE_KEY"];
         // Gemini / Grok / Groq can serve the request without the Lovable gateway,
         // so only Supabase config is mandatory — the AI providers are tried in
-        // order (Lovable -> Gemini -> Groq) and fall through to whichever key exists.
+        // order (Gemini -> Lovable -> Groq -> Grok) and fall through to whichever key exists.
         if (!url || !anon) return new Response("Not configured", { status: 500 });
-
         const authHeader = request.headers.get("authorization");
         if (!authHeader) return new Response("Unauthorized", { status: 401 });
 
@@ -213,7 +223,7 @@ export const Route = createFileRoute("/api/study")({
             : [];
 
         let upstream: Response | null = null;
-        let source: "gateway" | "google" | "groq" = "gateway";
+        let source: "gateway" | "google" | "groq" | "grok" = "gateway";
         let servedModel = "";
         // Why each provider failed, so the final error names the real cause
         // instead of a blanket "unavailable" — e.g. the gateway running out of
@@ -222,6 +232,7 @@ export const Route = createFileRoute("/api/study")({
         let gatewayError = "";
         let googleError = "";
         let groqError = "";
+        let grokError = "";
 
         // Marking and challenges run on the Pro-tier chain — critical
         // evaluation of an exam script is a reasoning task, and the marking
@@ -233,11 +244,20 @@ export const Route = createFileRoute("/api/study")({
         // the caller gets a clean timeout instead of an endless wait.
         const deadline = Date.now() + ACQUIRE_DEADLINE_MS;
 
+        /** First non-empty value among the given env var names. */
+        const readKey = (...names: string[]): string | undefined => {
+          for (const name of names) {
+            const value = process.env[name];
+            if (typeof value === "string" && value.trim()) return value.trim();
+          }
+          return undefined;
+        };
+
         // 1) FIRST PRIORITY — the project's own Gemini key (user-provided API key,
         // e.g. a Google AI Studio key). Tried before the shared gateway on every
         // request; any failure falls through to the gateway below.
         if (!upstream) {
-          const googleKey = process.env["GEMINI_API_KEY"];
+          const googleKey = readKey("GEMINI_API_KEY", "GOOGLE_API_KEY");
           if (googleKey) {
             for (const model of GOOGLE_MODEL_CHAIN) {
               const remaining = deadline - Date.now();
@@ -274,9 +294,12 @@ export const Route = createFileRoute("/api/study")({
                   await res.body?.cancel();
                   res = await post("off");
                 }
-              } catch {
-                googleError = "Gemini fallback: timed out or unreachable";
-                break;
+              } catch (err) {
+                // Per-model timeout/network error — try the next model instead of
+                // abandoning the whole Gemini chain on the first hang.
+                const why = err instanceof Error ? err.message : "timed out or unreachable";
+                googleError = `Gemini fallback (${model}): ${why}`;
+                continue;
               }
               if (res.ok && res.body) {
                 upstream = res;
@@ -284,7 +307,7 @@ export const Route = createFileRoute("/api/study")({
                 servedModel = model;
                 break;
               }
-              googleError = await describeHttpFailure("Gemini fallback", res);
+              googleError = await describeHttpFailure(`Gemini fallback (${model})`, res);
               // 404 = model retired for this key; 400 = unsupported request for
               // this model. Both are per-model, so try the next one.
               if (
@@ -300,14 +323,22 @@ export const Route = createFileRoute("/api/study")({
           }
         }
 
-        // 2) Shared Lovable gateway — tried when no Gemini key is set, or when
-        // the Gemini key failed (rate limit, outage, rejected key).
-        // Credit exhaustion (402) / policy block (403) is workspace-wide, not
-        // per-model: once seen, every further gateway model returns the same.
-        // Skip the whole gateway for a while and go straight to the project's
-        // own keys, so marking never stalls or surfaces a 402.
-        const gatewaySkipped = gatewayFailure !== null && gatewayFailure.until > Date.now();
-        if (gatewaySkipped) gatewayStatus = gatewayFailure!.status;
+        // 2) Shared Lovable gateway — only when a LOVABLE_API_KEY is present and
+        // the Gemini key failed (or was missing). Credit exhaustion (402) /
+        // policy block (403) is workspace-wide, not per-model: once seen, every
+        // further gateway model returns the same. Skip the whole gateway for a
+        // while and go straight to the project's own keys.
+        const gatewaySkipped =
+          !apiKey || (gatewayFailure !== null && gatewayFailure.until > Date.now());
+        if (!apiKey) {
+          gatewayError = "Shared gateway: LOVABLE_API_KEY not set";
+        } else if (gatewayFailure !== null && gatewayFailure.until > Date.now()) {
+          gatewayStatus = gatewayFailure.status;
+          gatewayError =
+            gatewayFailure.status === 402
+              ? "Shared gateway: credits exhausted (402) — skipped (cached)"
+              : `Shared gateway: previously failed (${gatewayFailure.status}) — skipped`;
+        }
         for (const model of gatewaySkipped ? [] : chain) {
           const remaining = deadline - Date.now();
           if (remaining <= 0) break;
@@ -375,11 +406,11 @@ export const Route = createFileRoute("/api/study")({
           break;
         }
 
-        // 3) Project's Groq key — last resort after Gemini and the gateway.
+        // 3) Project's Groq key — after Gemini and the gateway.
         // Groq speaks the same OpenAI-style SSE shape as the gateway, so the
         // stream parser below handles it unchanged.
         if (!upstream) {
-          const groqKey = process.env["GROQ_API_KEY"];
+          const groqKey = readKey("GROQ_API_KEY");
           if (groqKey) {
             for (const model of GROQ_MODEL_CHAIN) {
               const remaining = deadline - Date.now();
@@ -397,8 +428,8 @@ export const Route = createFileRoute("/api/study")({
                     body: JSON.stringify({
                       model,
                       stream: true,
-                      // llama has no reasoning tier; a reasoning-capable Groq model
-                      // would get one here. See groqRequestParams.
+                      // gpt-oss models accept reasoning_effort; llama (retired)
+                      // does not. See groqRequestParams.
                       ...groqRequestParams(model, data.mode),
                       messages: [
                         { role: "system", content: system },
@@ -409,9 +440,10 @@ export const Route = createFileRoute("/api/study")({
                   },
                   Math.min(REQUEST_TIMEOUT_MS, remaining),
                 );
-              } catch {
-                groqError = "Groq fallback: timed out or unreachable";
-                break;
+              } catch (err) {
+                const why = err instanceof Error ? err.message : "timed out or unreachable";
+                groqError = `Groq fallback (${model}): ${why}`;
+                continue;
               }
               if (res.ok && res.body) {
                 upstream = res;
@@ -419,7 +451,102 @@ export const Route = createFileRoute("/api/study")({
                 servedModel = model;
                 break;
               }
-              groqError = await describeHttpFailure("Groq fallback", res);
+              groqError = await describeHttpFailure(`Groq fallback (${model})`, res);
+              // 404 = unknown/retired model — try the next id. 400/422 may be a
+              // rejected reasoning knob; retry once without it before giving up.
+              if (res.status === 400 || res.status === 422) {
+                try {
+                  await res.body?.cancel();
+                  const retryRemaining = deadline - Date.now();
+                  if (retryRemaining <= 0) break;
+                  res = await fetchWithTimeout(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    {
+                      method: "POST",
+                      headers: {
+                        Authorization: `Bearer ${groqKey}`,
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify({
+                        model,
+                        stream: true,
+                        temperature: 0,
+                        top_p: 0.1,
+                        messages: [
+                          { role: "system", content: system },
+                          ...priorMessages,
+                          { role: "user", content: userContent },
+                        ],
+                      }),
+                    },
+                    Math.min(REQUEST_TIMEOUT_MS, retryRemaining),
+                  );
+                  if (res.ok && res.body) {
+                    upstream = res;
+                    source = "groq";
+                    servedModel = model;
+                    break;
+                  }
+                  groqError = await describeHttpFailure(`Groq fallback (${model})`, res);
+                } catch (err) {
+                  const why = err instanceof Error ? err.message : "timed out or unreachable";
+                  groqError = `Groq fallback (${model}): ${why}`;
+                }
+              }              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
+              if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
+            }
+          }
+        }
+
+        // 4) Project's Grok (xAI) key — final personal-key fallback.
+        if (!upstream) {
+          const grokKey = readKey("GROK_API_KEY", "XAI_API_KEY");
+          if (grokKey) {
+            for (const model of GROK_MODEL_CHAIN) {
+              const remaining = deadline - Date.now();
+              if (remaining <= 0) break;
+              const post = (withReasoning: boolean) =>
+                fetchWithTimeout(
+                  "https://api.x.ai/v1/chat/completions",
+                  {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Bearer ${grokKey}`,
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      model,
+                      stream: true,
+                      temperature: 0.3,
+                      ...(withReasoning ? openAiRequestParams(model, data.mode) : {}),
+                      messages: [
+                        { role: "system", content: system },
+                        ...priorMessages,
+                        { role: "user", content: userContent },
+                      ],
+                    }),
+                  },
+                  Math.min(REQUEST_TIMEOUT_MS, remaining),
+                );
+              let res: Response;
+              try {
+                res = await post(true);
+                if (res.status === 400 || res.status === 422) {
+                  await res.body?.cancel();
+                  res = await post(false);
+                }
+              } catch (err) {
+                const why = err instanceof Error ? err.message : "timed out or unreachable";
+                grokError = `Grok fallback (${model}): ${why}`;
+                continue;
+              }
+              if (res.ok && res.body) {
+                upstream = res;
+                source = "grok";
+                servedModel = model;
+                break;
+              }
+              grokError = await describeHttpFailure(`Grok fallback (${model})`, res);
               if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
               if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
             }
@@ -431,6 +558,9 @@ export const Route = createFileRoute("/api/study")({
           // code (402/429 mirror the gateway's), but the message reports the
           // actual failures of BOTH the gateway and the configured fallbacks,
           // so "GEMINI_API_KEY is set but still failing" is finally visible.
+          const hasGemini = !!readKey("GEMINI_API_KEY", "GOOGLE_API_KEY");
+          const hasGroq = !!readKey("GROQ_API_KEY");
+          const hasGrok = !!readKey("GROK_API_KEY", "XAI_API_KEY");
           const reasons = [
             gatewayStatus === 402 ? gatewayError || "Shared gateway: credits exhausted (402)" : "",
             gatewayStatus === 403 ? gatewayError || "Shared gateway: blocked (403)" : "",
@@ -445,6 +575,7 @@ export const Route = createFileRoute("/api/study")({
               : "",
             googleError || "",
             groqError || "",
+            grokError || "",
           ].filter(Boolean);
 
           let message =
@@ -455,18 +586,31 @@ export const Route = createFileRoute("/api/study")({
               reasons.map((r) => `• ${r}`).join("\n");
             if (gatewayStatus === 402)
               message +=
-                "\n\nThe shared Lovable AI allowance has run out of credits. Add credits / enable auto top-up in Lovable (Settings → Plans & credit usage), or fix the Gemini fallback below.";
-            if (!googleError && !process.env["GEMINI_API_KEY"])
+                "\n\nThe shared Lovable AI allowance has run out of credits. " +
+                "Set GEMINI_API_KEY, GROQ_API_KEY, or GROK_API_KEY / XAI_API_KEY in the deployment " +
+                "(or .env.local for local dev) so requests bypass the shared gateway, " +
+                "or add credits / enable auto top-up in Lovable (Settings → Plans & credit usage).";
+            if (!googleError && !hasGemini)
               message +=
                 "\n\nNote: no GEMINI_API_KEY is set in the deployment, so the Google fallback was never attempted.";
-            if (!groqError && !process.env["GROQ_API_KEY"])
+            if (!groqError && !hasGroq)
               message += "\n\nNote: no GROQ_API_KEY is set in the deployment.";
+            if (!grokError && !hasGrok)
+              message += "\n\nNote: no GROK_API_KEY / XAI_API_KEY is set in the deployment.";
           }
 
-          const status = gatewayStatus === 402 ? 402 : gatewayStatus === 429 ? 429 : 502;
+          // Prefer 502 over 402 when personal keys are configured — the gateway
+          // being out of credits is not the actionable failure once fallbacks exist.
+          const status =
+            hasGemini || hasGroq || hasGrok
+              ? 502
+              : gatewayStatus === 402
+                ? 402
+                : gatewayStatus === 429
+                  ? 429
+                  : 502;
           return new Response(message, { status });
         }
-
         const encoder = new TextEncoder();
         const decoder = new TextDecoder();
         let full = "";

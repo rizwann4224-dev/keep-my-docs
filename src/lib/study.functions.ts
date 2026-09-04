@@ -354,20 +354,20 @@ async function complete(
 
 /** Models tried for plain text (ask / mark). */
 const TEXT_CHAINS: ProviderChains = {
-  gemini: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+  gemini: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
   grok: ["grok-4.3", "grok-4.1-fast", "grok-3"],
-  groq: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+  // Groq shut down llama-3.1 / llama-3.3 chat SKUs on 2026-08-16.
+  groq: ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
   lovable: ["google/gemini-2.5-pro", "google/gemini-2.5-flash"],
 };
 
 /** Models tried for vision (OCR of scanned pages). */
 const VISION_CHAINS: ProviderChains = {
-  gemini: ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
+  gemini: ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
   grok: ["grok-4.3", "grok-2-vision-1212"],
   groq: [],
   lovable: ["google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"],
 };
-
 export const runStudyQuery = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) =>

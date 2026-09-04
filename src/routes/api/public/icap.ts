@@ -16,11 +16,18 @@ const MODEL_CHAIN = [
 ];
 
 /** Project's own Gemini key (direct Google API) — FIRST priority on every request. */
-const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"];
+const GOOGLE_MODEL_CHAIN = [
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-flash-latest",
+];
 
-/** Project's Groq key — last resort after Gemini and the gateway. */
-const GROQ_MODEL_CHAIN = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
-
+/**
+ * Project's Groq key — last resort after Gemini and the gateway.
+ * llama-3.1 / llama-3.3 chat SKUs were shut down 2026-08-16; use production replacements.
+ */
+const GROQ_MODEL_CHAIN = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
 const Body = z.object({
   system: z.string().min(1),
   user: z.string().min(1),
@@ -188,57 +195,73 @@ export const Route = createFileRoute("/api/public/icap")({
           }
         }
 
-        // Google key also exhausted or rate limited — fall back to the Groq key.
-        if (lastStatus === 402 || lastStatus === 429 || lastStatus === 401 || lastStatus === 503) {
+        // Google key also exhausted, timed out, or rate limited — fall back to Groq.
+        // Always attempt Groq when personal keys exist and we still have no answer,
+        // including the 402 (Lovable credits out) and network-timeout paths.
+        if (
+          lastStatus === 402 ||
+          lastStatus === 429 ||
+          lastStatus === 401 ||
+          lastStatus === 503 ||
+          lastStatus === 502 ||
+          lastStatus === 404 ||
+          lastStatus === 0
+        ) {
           const groqKey = process.env["GROQ_API_KEY"];
           if (groqKey) {
             for (const model of GROQ_MODEL_CHAIN) {
-              const res = await fetchWithTimeout(
-                "https://api.groq.com/openai/v1/chat/completions",
-                {
-                  method: "POST",
-                  headers: {
-                    Authorization: `Bearer ${groqKey}`,
-                    "Content-Type": "application/json",
+              try {
+                const res = await fetchWithTimeout(
+                  "https://api.groq.com/openai/v1/chat/completions",
+                  {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Bearer ${groqKey}`,
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      model,
+                      temperature: 0,
+                      max_tokens: Math.round((tokens ?? 1000) * 1.8),
+                      messages: [
+                        { role: "system", content: system },
+                        { role: "user", content: user },
+                      ],
+                    }),
                   },
-                  body: JSON.stringify({
-                    model,
-                    temperature: 0,
-                    max_tokens: Math.round((tokens ?? 1000) * 1.8),
-                    messages: [
-                      { role: "system", content: system },
-                      { role: "user", content: user },
-                    ],
-                  }),
-                },
-                REQUEST_TIMEOUT_MS,
-              );
-              if (res.ok) {
-                const json = (await res.json()) as {
-                  choices?: { message?: { content?: string } }[];
-                };
-                const text = (json.choices?.[0]?.message?.content ?? "").trim();
-                if (text) return Response.json({ text, source: "groq", model });
-                lastStatus = 502;
-                lastBody = "Empty reply from the Groq model.";
+                  REQUEST_TIMEOUT_MS,
+                );
+                if (res.ok) {
+                  const json = (await res.json()) as {
+                    choices?: { message?: { content?: string } }[];
+                  };
+                  const text = (json.choices?.[0]?.message?.content ?? "").trim();
+                  if (text) return Response.json({ text, source: "groq", model });
+                  lastStatus = 502;
+                  lastBody = "Empty reply from the Groq model.";
+                  continue;
+                }
+                lastStatus = res.status;
+                lastBody = await res.text().catch(() => "");
+                // 404 = retired model id — try the next one.
+                if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
+                if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
+              } catch (err) {
+                lastStatus = 504;
+                lastBody = err instanceof Error ? err.message : "Groq timed out or unreachable";
                 continue;
               }
-              lastStatus = res.status;
-              lastBody = await res.text().catch(() => "");
-              if (res.status !== 429 && res.status !== 503) break;
-              await new Promise((r) => setTimeout(r, 800));
             }
           }
         }
 
         const message =
           lastStatus === 402
-            ? "AI credits are used up and the backup key is unavailable — add credits or switch the provider dropdown to your own key."
+            ? "AI credits are used up and the backup key is unavailable — set GEMINI_API_KEY or GROQ_API_KEY, or add credits in Lovable."
             : lastStatus === 429
               ? "The AI is busy right now — try again in a few seconds."
               : `AI request failed (${lastStatus}). ${lastBody.slice(0, 200)}`;
-        return new Response(message, { status: lastStatus === 429 ? 429 : 502 });
-      },
+        return new Response(message, { status: lastStatus === 429 ? 429 : 502 });      },
     },
   },
 });

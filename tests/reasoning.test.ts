@@ -26,8 +26,13 @@ const GATEWAY_CHAIN = [
   "google/gemini-2.5-flash",
   "google/gemini-2.5-flash-lite",
 ];
-const GOOGLE_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"];
-
+// Mirrors GOOGLE_MODEL_CHAIN in src/routes/api/study.ts — keep in sync.
+const GOOGLE_CHAIN = [
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-flash-latest",
+];
 function withoutEnvOverride<T>(fn: () => T): T {
   const previous = process.env["STUDY_REASONING_EFFORT"];
   delete process.env["STUDY_REASONING_EFFORT"];
@@ -179,8 +184,9 @@ test("xhigh saturates at high for OpenAI-style providers", () => {
   }
 });
 
-test("Groq: llama gets no reasoning tier, reasoning-capable models do", () => {
+test("Groq: llama gets no reasoning tier, gpt-oss / qwen do", () => {
   withoutEnvOverride(() => {
+    // Retired llama ids (kept for regression safety) must stay silent.
     assert.deepEqual(groqRequestParams("llama-3.3-70b-versatile", "mark"), {
       temperature: 0,
       top_p: 0.1,
@@ -189,6 +195,17 @@ test("Groq: llama gets no reasoning tier, reasoning-capable models do", () => {
       temperature: 0,
       top_p: 0.1,
     });
+    // Current production Groq chain (post 2026-08-16 llama shutdown).
+    assert.deepEqual(groqRequestParams("openai/gpt-oss-120b", "mark"), {
+      temperature: 0,
+      top_p: 0.1,
+      reasoning_effort: "high",
+    });
+    assert.deepEqual(groqRequestParams("openai/gpt-oss-20b", "ask"), {
+      temperature: 0,
+      top_p: 0.1,
+      reasoning_effort: "medium",
+    });
     assert.deepEqual(groqRequestParams("qwen3-32b", "mark"), {
       temperature: 0,
       top_p: 0.1,
@@ -196,7 +213,6 @@ test("Groq: llama gets no reasoning tier, reasoning-capable models do", () => {
     });
   });
 });
-
 test("capped-output call sites reserve room for thinking tokens", () => {
   withoutEnvOverride(() => {
     assert.equal(thinkingHeadroom("ask"), 4_096);

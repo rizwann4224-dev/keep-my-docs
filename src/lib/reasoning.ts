@@ -173,17 +173,16 @@ export function openAiRequestParams(model: string, mode: ReasoningMode): Record<
 }
 
 /**
- * Groq's llama chain has no reasoning parameter (and rejects unknown ones on
- * some deployments), so the prompt-level reasoning protocol does the work there.
+ * Groq params. The retired llama chat SKUs rejected unknown reasoning knobs;
+ * current production models (openai/gpt-oss-*, qwen/*) accept `reasoning_effort`.
+ * Anything that still looks like a plain llama id stays silent.
  */
 export function groqRequestParams(model: string, mode: ReasoningMode): Record<string, unknown> {
   const params: Record<string, unknown> = { temperature: 0, top_p: 0.1 };
-  // Groq does serve reasoning-capable models (qwen3, gpt-oss); pass the tier
-  // through for those and stay silent for llama.
-  if (/^llama-/i.test(model)) return params;
+  // Plain llama ids (retired) get no reasoning tier; gpt-oss / qwen do.
+  if (/(^|[/])llama-/i.test(model)) return params;
   return { ...params, ...reasoningEffortParam(mode) };
 }
-
 /**
  * Extra output tokens to reserve when a caller caps `max_tokens`/`maxOutputTokens`:
  * thinking tokens are billed against that same cap, so a cap sized for the answer
