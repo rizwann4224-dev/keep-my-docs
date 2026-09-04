@@ -23,10 +23,61 @@ const STOP = new Set([
 ]);
 
 /**
- * Keyword-retrieval over the notebook's sources: only the passages that matter for
- * this query are sent to the model. Keeps answers grounded while cutting the token
- * cost of every message by ~10x versus shipping whole documents.
+ * Broad "survey" questions — "list all questions", "what areas do the past papers
+ * cover", "index the topics" — have no distinctive keywords to retrieve on, so a
+ * keyword search returns almost nothing and the model wrongly reports the material
+ * as missing. These queries need EVEN COVERAGE of every document instead.
  */
+export function isSurveyQuery(query: string): boolean {
+  const q = query.toLowerCase();
+  const broad =
+    /\b(all|every|each|list|index|overview|summar(?:y|ise|ize)|catalog(?:ue)?|breakdown|map|coverage|entire|whole|complete)\b/.test(
+      q,
+    );
+  const subject =
+    /\b(question|questions|area|areas|topic|topics|syllabus|chapter|chapters|section|sections|past paper|past papers|paper|papers|exam|exams|standard|standards)\b/.test(
+      q,
+    );
+  return broad && subject;
+}
+
+/**
+ * Uniform sampling across the FULL span of every document, so no part of a paper is
+ * invisible to the model. Used for survey queries and as a top-up when keyword
+ * retrieval finds little.
+ */
+export function buildCoverageBlock(
+  docs: { name: string; extracted_text: string | null }[],
+  budget = MAX_CONTEXT_CHARS,
+): string {
+  const usable = docs.filter((d) => (d.extracted_text ?? "").trim().length > 0);
+  if (usable.length === 0) return "NO_SOURCE_TEXT_AVAILABLE";
+
+  const total = usable.reduce((n, d) => n + (d.extracted_text ?? "").length, 0);
+  if (total <= budget) return buildSourceBlock(usable);
+
+  const perDoc = Math.floor(budget / usable.length);
+  const WINDOW = 4_000;
+  return usable
+    .map((doc) => {
+      const text = doc.extracted_text ?? "";
+      if (text.length <= perDoc) {
+        return `<<<SOURCE: ${doc.name} (complete)>>>\n${text}\n<<<END SOURCE>>>`;
+      }
+      const windows = Math.max(1, Math.floor(perDoc / WINDOW));
+      const step = Math.floor(text.length / windows);
+      const parts: string[] = [];
+      for (let i = 0; i < windows; i++) {
+        const start = i * step;
+        parts.push(
+          `<<<SOURCE: ${doc.name} (span ${start.toLocaleString()}–${(start + WINDOW).toLocaleString()} of ${text.length.toLocaleString()} chars)>>>\n${text.slice(start, start + WINDOW)}\n<<<END EXTRACT>>>`,
+        );
+      }
+      return parts.join("\n\n");
+    })
+    .join("\n\n");
+}
+
 export function buildRelevantSourceBlock(
   docs: { name: string; extracted_text: string | null }[],
   query: string,
@@ -34,6 +85,7 @@ export function buildRelevantSourceBlock(
 ): string {
   const usable = docs.filter((d) => (d.extracted_text ?? "").trim().length > 0);
   if (usable.length === 0) return "NO_SOURCE_TEXT_AVAILABLE";
+
 
   const inventory = `<<<NOTEBOOK INVENTORY — every source in this notebook>>>
 ${usable
