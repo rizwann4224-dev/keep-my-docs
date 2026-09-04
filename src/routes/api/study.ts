@@ -93,7 +93,10 @@ export const Route = createFileRoute("/api/study")({
         const apiKey = process.env["LOVABLE_API_KEY"];
         const url = process.env["SUPABASE_URL"];
         const anon = process.env["SUPABASE_PUBLISHABLE_KEY"];
-        if (!apiKey || !url || !anon) return new Response("Not configured", { status: 500 });
+        // Gemini / Grok / Groq can serve the request without the Lovable gateway,
+        // so only Supabase config is mandatory — the AI providers are tried in
+        // order (Lovable -> Gemini -> Groq) and fall through to whichever key exists.
+        if (!url || !anon) return new Response("Not configured", { status: 500 });
 
         const authHeader = request.headers.get("authorization");
         if (!authHeader) return new Response("Unauthorized", { status: 401 });
