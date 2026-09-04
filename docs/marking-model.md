@@ -5,13 +5,15 @@ examiner — with no external API key and no third-party model connection.
 
 ## Model chain — marking & challenge
 
-Tried in order; the first that responds serves the request. Nothing to configure:
+Tried in order; the first that responds serves the request:
 
-1. **Lovable gateway, Pro tier** — `google/gemini-3.1-pro-preview`, then
+1. **Project Gemini key (`GEMINI_API_KEY`)** — direct Google API, first priority
+   on every request. Both old (`AIza…`) and new (`AQ.…`) AI Studio keys work.
+2. **Lovable gateway, Pro tier** — `google/gemini-3.1-pro-preview`, then
    `google/gemini-2.5-pro`.
-2. **Lovable gateway, flash tier** — `google/gemini-3.6-flash` →
+3. **Lovable gateway, flash tier** — `google/gemini-3.6-flash` →
    `google/gemini-2.5-flash` → `google/gemini-2.5-flash-lite`.
-3. **Project keys** — Google Gemini, then Groq (unchanged).
+4. **Project Groq key** — last resort.
 
 Ask / exam / insights modes keep the flash chain for speed. The model that
 served each answer is shown in the answer footer ("Model: …").
