@@ -7,14 +7,18 @@ examiner — with no external API key and no third-party model connection.
 
 Tried in order; the first that responds serves the request:
 
-1. **Project Gemini key (`GEMINI_API_KEY`)** — direct Google API, first priority
-   on every request. Both old (`AIza…`) and new (`AQ.…`) AI Studio keys work.
+1. **Project Gemini key (`GEMINI_API_KEY` / `GOOGLE_API_KEY`)** — direct Google
+   API, first priority on every request. Both old (`AIza…`) and new (`AQ.…`) AI
+   Studio keys work. Models: `gemini-2.5-flash` → `gemini-2.5-flash-lite` →
+   `gemini-2.0-flash` → `gemini-flash-latest`.
 2. **Lovable gateway, Pro tier** — `google/gemini-3.1-pro-preview`, then
-   `google/gemini-2.5-pro`.
+   `google/gemini-2.5-pro`. Skipped entirely when credits are exhausted (402).
 3. **Lovable gateway, flash tier** — `google/gemini-3.6-flash` →
    `google/gemini-2.5-flash` → `google/gemini-2.5-flash-lite`.
-4. **Project Groq key** — last resort.
-
+4. **Project Groq key (`GROQ_API_KEY`)** — `openai/gpt-oss-120b` →
+   `openai/gpt-oss-20b` (the llama-3.1 / llama-3.3 chat SKUs were shut down
+   2026-08-16).
+5. **Project Grok / xAI key (`GROK_API_KEY` / `XAI_API_KEY`)** — final fallback.
 Ask / exam / insights modes keep the flash chain for speed. The model that
 served each answer is shown in the answer footer ("Model: …").
 

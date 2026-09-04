@@ -35,8 +35,9 @@ exclusive — sending both Gemini keys in one request is a hard `400`:
   `gemini-flash-latest`) → `thinkingConfig.thinkingBudget` in tokens
   (1 024 / 4 096 / 12 288 / 24 576). These models reject `thinkingLevel`.
 - **Lovable gateway (OpenAI-style)** → top-level `reasoning_effort`.
-- **Groq** → the tier is passed only to reasoning-capable models; the `llama-*`
-  fallbacks get none and rely on the prompt-level protocol instead.
+- **Groq** → the tier is passed to reasoning-capable models (`openai/gpt-oss-*`,
+  `qwen/*`). Retired `llama-*` ids (shut down 2026-08-16) get none and would
+  rely on the prompt-level protocol instead.
 
 ## Safety nets
 
