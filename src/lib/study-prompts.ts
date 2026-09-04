@@ -23,10 +23,61 @@ const STOP = new Set([
 ]);
 
 /**
- * Keyword-retrieval over the notebook's sources: only the passages that matter for
- * this query are sent to the model. Keeps answers grounded while cutting the token
- * cost of every message by ~10x versus shipping whole documents.
+ * Broad "survey" questions — "list all questions", "what areas do the past papers
+ * cover", "index the topics" — have no distinctive keywords to retrieve on, so a
+ * keyword search returns almost nothing and the model wrongly reports the material
+ * as missing. These queries need EVEN COVERAGE of every document instead.
  */
+export function isSurveyQuery(query: string): boolean {
+  const q = query.toLowerCase();
+  const broad =
+    /\b(all|every|each|list|index|overview|summar(?:y|ise|ize)|catalog(?:ue)?|breakdown|map|coverage|entire|whole|complete)\b/.test(
+      q,
+    );
+  const subject =
+    /\b(question|questions|area|areas|topic|topics|syllabus|chapter|chapters|section|sections|past paper|past papers|paper|papers|exam|exams|standard|standards)\b/.test(
+      q,
+    );
+  return broad && subject;
+}
+
+/**
+ * Uniform sampling across the FULL span of every document, so no part of a paper is
+ * invisible to the model. Used for survey queries and as a top-up when keyword
+ * retrieval finds little.
+ */
+export function buildCoverageBlock(
+  docs: { name: string; extracted_text: string | null }[],
+  budget = MAX_CONTEXT_CHARS,
+): string {
+  const usable = docs.filter((d) => (d.extracted_text ?? "").trim().length > 0);
+  if (usable.length === 0) return "NO_SOURCE_TEXT_AVAILABLE";
+
+  const total = usable.reduce((n, d) => n + (d.extracted_text ?? "").length, 0);
+  if (total <= budget) return buildSourceBlock(usable);
+
+  const perDoc = Math.floor(budget / usable.length);
+  const WINDOW = 4_000;
+  return usable
+    .map((doc) => {
+      const text = doc.extracted_text ?? "";
+      if (text.length <= perDoc) {
+        return `<<<SOURCE: ${doc.name} (complete)>>>\n${text}\n<<<END SOURCE>>>`;
+      }
+      const windows = Math.max(1, Math.floor(perDoc / WINDOW));
+      const step = Math.floor(text.length / windows);
+      const parts: string[] = [];
+      for (let i = 0; i < windows; i++) {
+        const start = i * step;
+        parts.push(
+          `<<<SOURCE: ${doc.name} (span ${start.toLocaleString()}–${(start + WINDOW).toLocaleString()} of ${text.length.toLocaleString()} chars)>>>\n${text.slice(start, start + WINDOW)}\n<<<END EXTRACT>>>`,
+        );
+      }
+      return parts.join("\n\n");
+    })
+    .join("\n\n");
+}
+
 export function buildRelevantSourceBlock(
   docs: { name: string; extracted_text: string | null }[],
   query: string,
@@ -35,6 +86,7 @@ export function buildRelevantSourceBlock(
   const usable = docs.filter((d) => (d.extracted_text ?? "").trim().length > 0);
   if (usable.length === 0) return "NO_SOURCE_TEXT_AVAILABLE";
 
+
   const inventory = `<<<NOTEBOOK INVENTORY — every source in this notebook>>>
 ${usable
     .map((d, i) => `${i + 1}. ${d.name}`)
@@ -42,6 +94,11 @@ ${usable
 
   const total = usable.reduce((n, d) => n + (d.extracted_text ?? "").length, 0);
   if (total <= budget) return inventory + buildSourceBlock(usable);
+
+  // Broad survey questions have no keywords to retrieve on — give even coverage of
+  // every document instead, so the model can actually enumerate what is there.
+  if (isSurveyQuery(query)) return inventory + buildCoverageBlock(usable, budget);
+
 
   const lowerQuery = query.toLowerCase();
   const base = Array.from(
@@ -191,7 +248,27 @@ ${usable
     takeCompanions(chunk);
   }
 
-  if (picked.size === 0) return inventory + buildSourceBlock(usable);
+  if (picked.size === 0) return inventory + buildCoverageBlock(usable, budget);
+
+  // Weak keyword match (little of the budget used, or few matching passages): the
+  // query wording simply doesn't appear in the sources even though the material
+  // does. Top up with even coverage instead of reporting "not found".
+  if (used < budget * 0.5 && ranked.length < chunks.length * 0.25) {
+    const spare = budget - used;
+    const coverage = buildCoverageBlock(usable, spare);
+    if (coverage !== "NO_SOURCE_TEXT_AVAILABLE") {
+      return (
+        inventory +
+        [...picked.values()]
+          .sort((a, b) => (a.doc === b.doc ? a.idx - b.idx : a.doc.localeCompare(b.doc)))
+          .map((c) => `<<<SOURCE: ${c.doc} (extract ${c.idx + 1})>>>\n${c.text}\n<<<END EXTRACT>>>`)
+          .join("\n\n") +
+        "\n\n" +
+        coverage
+      );
+    }
+  }
+
 
   return (
     inventory +
@@ -235,6 +312,14 @@ SEARCH DISCIPLINE (do this before writing anything):
 - Non-consecutive extract numbers mean pages were skipped, not that content is missing. Never conclude something is absent because it is not adjacent to the question.
 - Only after that scan do you decide whether something is present. Never say it is missing because it was not in the first source.
 - Before writing "Not found in your sources", silently re-run the search using: the question number, 2-3 synonyms, the key noun alone, any figure in the question, and the document's answer/comment headings. Say "not found" ONLY if all of those fail, and then name exactly what you searched for.
+- NEVER say "Not found in your sources" for a document that appears in the extracts unless you have read every extract of that document. Extracts labelled "(span X–Y of N chars)" are evenly spaced samples of the WHOLE document — treat them as proof the material exists and work from what they show.
+
+ENUMERATION / COVERAGE QUESTIONS ("list all questions", "what areas do the past papers cover", "index the topics"):
+- Walk the extracts document by document, in order, and collect EVERY question you can see: its label (Q.1, Q.2(b)), its paper/session if shown, its marks, and a short description of what it asks.
+- Classify each question yourself into the technical area it tests (e.g. audit risk, code of ethics, internal controls, group audits, IAS 12 deferred tax) by reading what the question actually requires — the paper rarely labels the area, so inference from the question wording is expected, not optional.
+- Present the result as a table: Paper/Session | Question | Marks | Area | What it tests. Group or sort by area when the user asked for areas.
+- State the coverage honestly at the end in one line, e.g. "Compiled from N extracts of <document>." Never refuse the whole task because some pages are not in the extracts — give everything visible, then note what could not be seen.
+
 - Verify each figure you output by re-reading the exact line it came from; if the line is ambiguous, quote it verbatim next to the figure.
 
 
