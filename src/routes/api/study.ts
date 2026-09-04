@@ -40,7 +40,7 @@ const MODEL_CHAIN = [
  */
 const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", ...MODEL_CHAIN];
 
-/** Personal-key fallback (direct Google API) used only when the shared allowance runs out. */
+/** Project's own Gemini key (direct Google API) — FIRST priority on every request. */
 const GOOGLE_MODEL_CHAIN = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite"];
 
 /** Second personal-key fallback (direct Groq API) used when Google is also exhausted. */
@@ -232,6 +232,76 @@ export const Route = createFileRoute("/api/study")({
         // Total budget for finding a working provider this request; after that
         // the caller gets a clean timeout instead of an endless wait.
         const deadline = Date.now() + ACQUIRE_DEADLINE_MS;
+
+        // 1) FIRST PRIORITY — the project's own Gemini key (user-provided API key,
+        // e.g. a Google AI Studio key). Tried before the shared gateway on every
+        // request; any failure falls through to the gateway below.
+        if (!upstream) {
+          const googleKey = process.env["GEMINI_API_KEY"];
+          if (googleKey) {
+            for (const model of GOOGLE_MODEL_CHAIN) {
+              const remaining = deadline - Date.now();
+              if (remaining <= 0) break;
+              const post = (mode: ReasoningMode) =>
+                fetchWithTimeout(
+                  `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "x-goog-api-key": googleKey },
+                    body: JSON.stringify({
+                      systemInstruction: { parts: [{ text: system }] },
+                      contents: [
+                        ...priorMessages.map((m) => ({
+                          role: m.role === "assistant" ? "model" : "user",
+                          parts: [{ text: m.content }],
+                        })),
+                        { role: "user", parts: [{ text: userContent }] },
+                      ],
+                      generationConfig: geminiGenerationConfig(model, mode),
+                    }),
+                  },
+                  Math.min(REQUEST_TIMEOUT_MS, remaining),
+                );
+
+              let res: Response;
+              try {
+                res = await post(data.mode);
+                // 400 here almost always means this model rejects the thinking
+                // config (an alias that resolves to a 2.5 model, or a level this
+                // model does not offer). Retry once with thinking off before
+                // falling through to a weaker model.
+                if (res.status === 400) {
+                  await res.body?.cancel();
+                  res = await post("off");
+                }
+              } catch {
+                googleError = "Gemini fallback: timed out or unreachable";
+                break;
+              }
+              if (res.ok && res.body) {
+                upstream = res;
+                source = "google";
+                servedModel = model;
+                break;
+              }
+              googleError = await describeHttpFailure("Gemini fallback", res);
+              // 404 = model retired for this key; 400 = unsupported request for
+              // this model. Both are per-model, so try the next one.
+              if (
+                res.status !== 429 &&
+                res.status !== 503 &&
+                res.status !== 404 &&
+                res.status !== 400
+              )
+                break;
+              if (res.status === 429 || res.status === 503)
+                await new Promise((r) => setTimeout(r, 800));
+            }
+          }
+        }
+
+        // 2) Shared Lovable gateway — tried when no Gemini key is set, or when
+        // the Gemini key failed (rate limit, outage, rejected key).
         // Credit exhaustion (402) / policy block (403) is workspace-wide, not
         // per-model: once seen, every further gateway model returns the same.
         // Skip the whole gateway for a while and go straight to the project's
@@ -305,75 +375,7 @@ export const Route = createFileRoute("/api/study")({
           break;
         }
 
-        // Allowance/rate-limit exhausted on the shared gateway — fall back to the
-        // project's own Gemini key so the user is never blocked.
-        // Any gateway failure (credits, rate limit, upstream error) falls back to the
-        // project's own Gemini key so a marking run never dead-ends.
-        if (!upstream) {
-          const googleKey = process.env["GEMINI_API_KEY"];
-          if (googleKey) {
-            for (const model of GOOGLE_MODEL_CHAIN) {
-              const remaining = deadline - Date.now();
-              if (remaining <= 0) break;
-              const post = (mode: ReasoningMode) =>
-                fetchWithTimeout(
-                  `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "x-goog-api-key": googleKey },
-                    body: JSON.stringify({
-                      systemInstruction: { parts: [{ text: system }] },
-                      contents: [
-                        ...priorMessages.map((m) => ({
-                          role: m.role === "assistant" ? "model" : "user",
-                          parts: [{ text: m.content }],
-                        })),
-                        { role: "user", parts: [{ text: userContent }] },
-                      ],
-                      generationConfig: geminiGenerationConfig(model, mode),
-                    }),
-                  },
-                  Math.min(REQUEST_TIMEOUT_MS, remaining),
-                );
-
-              let res: Response;
-              try {
-                res = await post(data.mode);
-                // 400 here almost always means this model rejects the thinking
-                // config (an alias that resolves to a 2.5 model, or a level this
-                // model does not offer). Retry once with thinking off before
-                // falling through to a weaker model.
-                if (res.status === 400) {
-                  await res.body?.cancel();
-                  res = await post("off");
-                }
-              } catch {
-                googleError = "Gemini fallback: timed out or unreachable";
-                break;
-              }
-              if (res.ok && res.body) {
-                upstream = res;
-                source = "google";
-                servedModel = model;
-                break;
-              }
-              googleError = await describeHttpFailure("Gemini fallback", res);
-              // 404 = model retired for this key; 400 = unsupported request for
-              // this model. Both are per-model, so try the next one.
-              if (
-                res.status !== 429 &&
-                res.status !== 503 &&
-                res.status !== 404 &&
-                res.status !== 400
-              )
-                break;
-              if (res.status === 429 || res.status === 503)
-                await new Promise((r) => setTimeout(r, 800));
-            }
-          }
-        }
-
-        // Google key also exhausted — final fallback to the project's Groq key.
+        // 3) Project's Groq key — last resort after Gemini and the gateway.
         // Groq speaks the same OpenAI-style SSE shape as the gateway, so the
         // stream parser below handles it unchanged.
         if (!upstream) {
