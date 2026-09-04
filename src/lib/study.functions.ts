@@ -16,6 +16,7 @@ import {
   type ReasoningMode,
 } from "@/lib/reasoning";
 import { fetchWithTimeout } from "@/lib/ai-fetch";
+import { ensureServerEnv, readServerKey } from "@/lib/load-env";
 
 /**
  * Unified AI caller for the study server functions.
@@ -48,11 +49,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** First non-empty value among the given env var names. */
 function readKey(...names: string[]): string | undefined {
-  for (const name of names) {
-    const value = process.env[name];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return undefined;
+  ensureServerEnv();
+  return readServerKey(...names);
 }
 
 function safeCancel(res: Response) {

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { geminiThinkingConfig, reasoningEffortParam, thinkingHeadroom } from "@/lib/reasoning";
 import { fetchWithTimeout } from "@/lib/ai-fetch";
+import { ensureServerEnv, readServerKey } from "@/lib/load-env";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -43,11 +44,9 @@ export const Route = createFileRoute("/api/public/icap")({
         if (!parsed.success) return new Response("Bad request", { status: 400 });
         const { system, user, tokens } = parsed.data;
 
-        const apiKey = process.env["LOVABLE_API_KEY"]?.trim() || undefined;
-        const googleKey =
-          process.env["GEMINI_API_KEY"]?.trim() ||
-          process.env["GOOGLE_API_KEY"]?.trim() ||
-          undefined;
+        ensureServerEnv();
+        const apiKey = readServerKey("LOVABLE_API_KEY");
+        const googleKey = readServerKey("GEMINI_API_KEY", "GOOGLE_API_KEY");
         let lastStatus = 0;
         let lastBody = "";
         let googleTried = false;
@@ -211,7 +210,7 @@ export const Route = createFileRoute("/api/public/icap")({
           lastStatus === 404 ||
           lastStatus === 0
         ) {
-          const groqKey = process.env["GROQ_API_KEY"];
+          const groqKey = readServerKey("GROQ_API_KEY");
           if (groqKey) {
             for (const model of GROQ_MODEL_CHAIN) {
               try {

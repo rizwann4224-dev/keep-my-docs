@@ -21,6 +21,7 @@ import {
   type ReasoningMode,
 } from "@/lib/reasoning";
 import { fetchWithTimeout } from "@/lib/ai-fetch";
+import { ensureServerEnv, readServerKey } from "@/lib/load-env";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -122,7 +123,9 @@ export const Route = createFileRoute("/api/study")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apiKey = process.env["LOVABLE_API_KEY"]?.trim() || undefined;
+        // Pull GEMINI_API_KEY etc. from .env.local even when the runtime did not.
+        ensureServerEnv();
+        const apiKey = readServerKey("LOVABLE_API_KEY");
         const url = process.env["SUPABASE_URL"];
         const anon = process.env["SUPABASE_PUBLISHABLE_KEY"];
         // Gemini / Grok / Groq can serve the request without the Lovable gateway,
@@ -268,13 +271,7 @@ export const Route = createFileRoute("/api/study")({
         const deadline = Date.now() + ACQUIRE_DEADLINE_MS;
 
         /** First non-empty value among the given env var names. */
-        const readKey = (...names: string[]): string | undefined => {
-          for (const name of names) {
-            const value = process.env[name];
-            if (typeof value === "string" && value.trim()) return value.trim();
-          }
-          return undefined;
-        };
+        const readKey = (...names: string[]): string | undefined => readServerKey(...names);
 
         // 1) FIRST PRIORITY — the project's own Gemini key (user-provided API key,
         // e.g. a Google AI Studio key). Tried before the shared gateway on every
