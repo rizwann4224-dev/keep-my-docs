@@ -4,7 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import {
   askSystemPrompt,
   buildLessonsBlock,
-  buildSourceBlock,
+  buildCoverageBlock,
   buildRelevantSourceBlock,
   markSystemPrompt,
   type MarkPart,
@@ -58,12 +58,14 @@ export const runStudyQuery = createServerFn({ method: "POST" })
     ]);
 
     // For "ask" mode: use relevant source extraction (smarter filtering)
-    // For "mark" mode: use comprehensive sources (need full context for marking)
+    // For "mark" mode: even coverage across the FULL span of every document — the
+    // marking guide and examiner's comments for a question are often many pages
+    // after it, so reading only each document's head was hiding them.
     const sources =
       data.mode === "ask"
         ? buildRelevantSourceBlock(docs ?? [], data.question)
-        : buildSourceBlock(docs ?? []);
-    
+        : buildCoverageBlock(docs ?? []);
+
     const lessons = buildLessonsBlock(notes ?? []);
     const system =
       data.mode === "mark"

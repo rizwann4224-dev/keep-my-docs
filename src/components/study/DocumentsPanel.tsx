@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import * as uploadJobs from "@/lib/upload-jobs";
+import { extractText } from "@/lib/extract-text";
 import { Progress } from "@/components/ui/progress";
 import { transcribePages } from "@/lib/study.functions";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [search, setSearch] = useState("");
+  const [reindexing, setReindexing] = useState<Record<string, string>>({});
 
   useSyncExternalStore(uploadJobs.subscribe, uploadJobs.getJobs, uploadJobs.getJobs);
   const uploads = uploadJobs.jobsFor(subjectId);
@@ -81,6 +83,50 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
     uploadJobs.startUploads(subjectId, userId, list, async (images) =>
       (await ocrCall({ data: { images } })).text,
     );
+  }
+
+  /** Re-extract a stored document in place — useful after indexing fixes or when a
+   *  long PDF was truncated. Downloads the file, runs the same extract + OCR path as
+   *  a fresh upload, and overwrites the stored text. */
+  async function reindex(doc: DocumentRow) {
+    setReindexing((m) => ({ ...m, [doc.id]: "Fetching file…" }));
+    try {
+      const { data, error } = await supabase.storage
+        .from("documents")
+        .createSignedUrl(doc.storage_path, 3600);
+      if (error || !data) throw new Error("Could not read this file");
+
+      const res = await fetch(data.signedUrl);
+      if (!res.ok) throw new Error("Could not download this file");
+      const blob = await res.blob();
+      const file = new File([blob], doc.name, {
+        type: doc.mime_type || blob.type || "application/octet-stream",
+      });
+
+      const text = await extractText(
+        file,
+        async (images) => (await ocrCall({ data: { images } })).text,
+        (message) => setReindexing((m) => ({ ...m, [doc.id]: message })),
+      );
+
+      const { error: updateError } = await supabase
+        .from("documents")
+        .update({ extracted_text: text || null })
+        .eq("id", doc.id);
+      if (updateError) throw updateError;
+
+      toast.success(text ? "Re-indexed with full text" : "No readable text found");
+      queryClient.invalidateQueries({ queryKey: ["documents", subjectId] });
+      queryClient.invalidateQueries({ queryKey: ["subject-doc-counts"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Re-index failed");
+    } finally {
+      setReindexing((m) => {
+        const next = { ...m };
+        delete next[doc.id];
+        return next;
+      });
+    }
   }
 
   async function openDocument(doc: DocumentRow, download: boolean) {
@@ -209,10 +255,21 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
                       <Badge variant="outline">No text</Badge>
                     )}
                   </p>
+                  {reindexing[doc.id] && (
+                    <p className="mt-0.5 truncate text-xs text-primary">{reindexing[doc.id]}</p>
+                  )}
                 </div>
                 <div className="flex gap-1">
                   <Button variant="ghost" size="sm" onClick={() => void openDocument(doc, false)}>
                     Preview
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={Boolean(reindexing[doc.id])}
+                    onClick={() => void reindex(doc)}
+                  >
+                    {reindexing[doc.id] ? "Re-indexing…" : "Re-index"}
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => void openDocument(doc, true)}>
                     Download
