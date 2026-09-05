@@ -46,7 +46,7 @@ export const Route = createFileRoute("/api/public/icap")({
 
         ensureServerEnv();
         const apiKey = readServerKey("LOVABLE_API_KEY");
-        const googleKey = readServerKey("GEMINI_API_KEY", "GOOGLE_API_KEY");
+        const googleKey = readServerKey("GOOGLE_API_KEY", "GEMINI_API_KEY");
         let lastStatus = 0;
         let lastBody = "";
         let googleTried = false;

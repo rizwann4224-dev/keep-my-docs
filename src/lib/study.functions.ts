@@ -286,7 +286,7 @@ async function complete(
   mode: ReasoningMode,
   chains: ProviderChains,
 ): Promise<string> {
-  const geminiKey = readKey("GEMINI_API_KEY", "GOOGLE_API_KEY");
+  const geminiKey = readKey("GOOGLE_API_KEY", "GEMINI_API_KEY");
   const grokKey = readKey("GROK_API_KEY", "XAI_API_KEY");
   const groqKey = readKey("GROQ_API_KEY");
   const lovableKey = readKey("LOVABLE_API_KEY");

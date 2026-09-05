@@ -279,7 +279,7 @@ export const Route = createFileRoute("/api/study")({
         // keep walking every model, and on timeout retry once with thinking off
         // (thinking is what makes stream headers slow on large mark prompts).
         if (!upstream) {
-          const googleKey = readKey("GEMINI_API_KEY", "GOOGLE_API_KEY");
+          const googleKey = readKey("GOOGLE_API_KEY", "GEMINI_API_KEY");
           if (googleKey) {
             console.error(
               `[study] Gemini key present (${googleKey.slice(0, 6)}…${googleKey.slice(-4)}, len=${googleKey.length}) — trying direct Google API first`,
@@ -675,7 +675,7 @@ export const Route = createFileRoute("/api/study")({
           // code (402/429 mirror the gateway's), but the message reports the
           // actual failures of BOTH the gateway and the configured fallbacks,
           // so "GEMINI_API_KEY is set but still failing" is finally visible.
-          const hasGemini = !!readKey("GEMINI_API_KEY", "GOOGLE_API_KEY");
+          const hasGemini = !!readKey("GOOGLE_API_KEY", "GEMINI_API_KEY");
           const hasGroq = !!readKey("GROQ_API_KEY");
           const hasGrok = !!readKey("GROK_API_KEY", "XAI_API_KEY");
           const reasons = [
