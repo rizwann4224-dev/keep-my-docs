@@ -69,6 +69,21 @@ const GOOGLE_MODEL_CHAIN_MARK = [
  */
 const GROQ_MODEL_CHAIN = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
 
+/**
+ * Groq's on-demand tier limits a single request to ~8000 tokens per minute, so
+ * the full notebook context must be trimmed before it is sent there. Roughly
+ * 4 chars/token, minus room for the reply.
+ */
+const GROQ_MAX_PROMPT_CHARS = 18_000;
+
+/** Keep the head (instructions) and tail (most relevant extract) of a prompt. */
+function clampForGroq(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max * 0.6);
+  const tail = max - head;
+  return `${text.slice(0, head)}\n\n…[context trimmed to fit the fallback model's size limit]…\n\n${text.slice(-tail)}`;
+}
+
 /** Third personal-key fallback (direct xAI / Grok API). */
 const GROK_MODEL_CHAIN = ["grok-4-fast-reasoning", "grok-4-fast-non-reasoning", "grok-3"];
 
@@ -497,6 +512,20 @@ export const Route = createFileRoute("/api/study")({
         if (!upstream) {
           const groqKey = readKey("GROQ_API_KEY");
           if (groqKey) {
+            // Groq's on-demand tier caps a single request at ~8k tokens per
+            // minute, so the full notebook context (hundreds of thousands of
+            // characters) always came back 413 and the whole request ended as
+            // a 502. Send a trimmed prompt instead — head + tail of the source
+            // block keeps the instructions and the most relevant extract.
+            const groqUserContent = clampForGroq(userContent, 6_000);
+            const groqSystem = clampForGroq(
+              system,
+              Math.max(4_000, GROQ_MAX_PROMPT_CHARS - groqUserContent.length),
+            );
+            const groqMessages = [
+              { role: "system", content: groqSystem },
+              { role: "user", content: groqUserContent },
+            ];
             for (const model of GROQ_MODEL_CHAIN) {
               const remaining = deadline - Date.now();
               if (remaining <= 0) break;
@@ -516,11 +545,7 @@ export const Route = createFileRoute("/api/study")({
                       // gpt-oss models accept reasoning_effort; llama (retired)
                       // does not. See groqRequestParams.
                       ...groqRequestParams(model, data.mode),
-                      messages: [
-                        { role: "system", content: system },
-                        ...priorMessages,
-                        { role: "user", content: userContent },
-                      ],
+                      messages: groqMessages,
                     }),
                   },
                   Math.min(REQUEST_TIMEOUT_MS, remaining),
@@ -557,11 +582,8 @@ export const Route = createFileRoute("/api/study")({
                         stream: true,
                         temperature: 0,
                         top_p: 0.1,
-                        messages: [
-                          { role: "system", content: system },
-                          ...priorMessages,
-                          { role: "user", content: userContent },
-                        ],
+                        messages: groqMessages,
+
                       }),
                     },
                     Math.min(REQUEST_TIMEOUT_MS, retryRemaining),
@@ -578,8 +600,17 @@ export const Route = createFileRoute("/api/study")({
                   groqError = `Groq fallback (${model}): ${why}`;
                 }
               }
-              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
-              if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
+              // 413 = still over this model's per-minute token cap; the smaller
+              // model in the chain may accept it, so keep walking.
+              if (
+                res.status !== 429 &&
+                res.status !== 503 &&
+                res.status !== 404 &&
+                res.status !== 413
+              )
+                break;
+              if (res.status !== 404 && res.status !== 413)
+                await new Promise((r) => setTimeout(r, 800));
             }
           }
         }
