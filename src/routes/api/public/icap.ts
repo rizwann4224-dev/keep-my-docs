@@ -12,7 +12,6 @@ const REQUEST_TIMEOUT_MS = 45_000;
 /** Same behaviour as the notebook: try the shared allowance first, then cheaper models. */
 const MODEL_CHAIN = [
   "google/gemini-3.6-flash",
-  "google/gemini-3.6-flash",
   "google/gemini-3.5-flash-lite",
 ];
 
