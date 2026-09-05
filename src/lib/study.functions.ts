@@ -114,12 +114,24 @@ async function fetchImageAsInlineData(
 async function toGeminiParts(content: string | Part[]): Promise<GeminiPart[]> {
   if (typeof content === "string") return [{ text: content }];
   const parts: GeminiPart[] = [];
+  let images = 0;
+  let attached = 0;
   for (const part of content) {
     if (part.type === "text") parts.push({ text: part.text });
     else {
+      images++;
       const inline = await fetchImageAsInlineData(part.image_url.url);
-      if (inline) parts.push(inline);
+      if (inline) {
+        parts.push(inline);
+        attached++;
+      }
     }
+  }
+  // Never send a vision request with every page image dropped — that silently
+  // produces an empty or invented transcription. Fail loudly so the caller
+  // retries or falls through to the next provider.
+  if (images > 0 && attached === 0) {
+    throw new Error("Page images could not be attached to the OCR request.");
   }
   return parts;
 }
