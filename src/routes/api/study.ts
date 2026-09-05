@@ -585,8 +585,17 @@ export const Route = createFileRoute("/api/study")({
                   groqError = `Groq fallback (${model}): ${why}`;
                 }
               }
-              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
-              if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
+              // 413 = still over this model's per-minute token cap; the smaller
+              // model in the chain may accept it, so keep walking.
+              if (
+                res.status !== 429 &&
+                res.status !== 503 &&
+                res.status !== 404 &&
+                res.status !== 413
+              )
+                break;
+              if (res.status !== 404 && res.status !== 413)
+                await new Promise((r) => setTimeout(r, 800));
             }
           }
         }
