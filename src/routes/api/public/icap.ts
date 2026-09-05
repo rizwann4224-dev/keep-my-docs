@@ -100,58 +100,6 @@ export const Route = createFileRoute("/api/public/icap")({
           }
         }
 
-        // 2) Shared Lovable gateway — tried when no Gemini key is set, or when the
-        // Gemini key failed above.
-        if (apiKey) {
-          for (const model of MODEL_CHAIN) {
-            const post = (withReasoning: boolean) =>
-              fetchWithTimeout(
-                GATEWAY,
-                {
-                  method: "POST",
-                  headers: {
-                    Authorization: `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
-                    model,
-                    temperature: 0,
-                    max_tokens: maxOut,
-                    ...(withReasoning ? reasoningEffortParam("ask") : {}),
-                    messages: [
-                      { role: "system", content: system },
-                      { role: "user", content: user },
-                    ],
-                  }),
-                },
-                REQUEST_TIMEOUT_MS,
-              );
-            let res = await post(true);
-            // Gateway without `reasoning_effort` support answers 400/422 —
-            // retry once without the knob rather than giving up on the model.
-            if (res.status === 400 || res.status === 422) res = await post(false);
-            if (res.ok) {
-              const json = (await res.json()) as {
-                choices?: { message?: { content?: string } }[];
-              };
-              const text = json.choices?.[0]?.message?.content ?? "";
-              if (text.trim()) {
-                return Response.json({ text, source: "lovable", model });
-              }
-              lastStatus = 502;
-              lastBody = "Empty reply from the AI.";
-              continue;
-            }
-            lastStatus = res.status;
-            lastBody = await res.text().catch(() => "");
-            // Only credit/rate-limit problems are worth trying a cheaper model for.
-            if (res.status !== 402 && res.status !== 429) break;
-            if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
-          }
-        } else if (!googleTried) {
-          lastStatus = 401;
-          lastBody = "AI is not configured.";
-        }
 
         // The Gemini key was already tried first above — this is only a safety net
         // for paths that never attempted it (i.e. no key existed at step 1).
@@ -256,6 +204,59 @@ export const Route = createFileRoute("/api/public/icap")({
               }
             }
           }
+        }
+
+        // 2) Shared Lovable gateway — tried when no Gemini key is set, or when the
+        // Gemini key failed above.
+        if (apiKey) {
+          for (const model of MODEL_CHAIN) {
+            const post = (withReasoning: boolean) =>
+              fetchWithTimeout(
+                GATEWAY,
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${apiKey}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    model,
+                    temperature: 0,
+                    max_tokens: maxOut,
+                    ...(withReasoning ? reasoningEffortParam("ask") : {}),
+                    messages: [
+                      { role: "system", content: system },
+                      { role: "user", content: user },
+                    ],
+                  }),
+                },
+                REQUEST_TIMEOUT_MS,
+              );
+            let res = await post(true);
+            // Gateway without `reasoning_effort` support answers 400/422 —
+            // retry once without the knob rather than giving up on the model.
+            if (res.status === 400 || res.status === 422) res = await post(false);
+            if (res.ok) {
+              const json = (await res.json()) as {
+                choices?: { message?: { content?: string } }[];
+              };
+              const text = json.choices?.[0]?.message?.content ?? "";
+              if (text.trim()) {
+                return Response.json({ text, source: "lovable", model });
+              }
+              lastStatus = 502;
+              lastBody = "Empty reply from the AI.";
+              continue;
+            }
+            lastStatus = res.status;
+            lastBody = await res.text().catch(() => "");
+            // Only credit/rate-limit problems are worth trying a cheaper model for.
+            if (res.status !== 402 && res.status !== 429) break;
+            if (res.status === 429) await new Promise((r) => setTimeout(r, 800));
+          }
+        } else if (!googleTried) {
+          lastStatus = 401;
+          lastBody = "AI is not configured.";
         }
 
         const message =
