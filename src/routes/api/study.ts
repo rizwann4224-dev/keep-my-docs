@@ -567,11 +567,8 @@ export const Route = createFileRoute("/api/study")({
                         stream: true,
                         temperature: 0,
                         top_p: 0.1,
-                        messages: [
-                          { role: "system", content: system },
-                          ...priorMessages,
-                          { role: "user", content: userContent },
-                        ],
+                        messages: groqMessages,
+
                       }),
                     },
                     Math.min(REQUEST_TIMEOUT_MS, retryRemaining),
