@@ -28,8 +28,7 @@ const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 /** Tried in order — if the budget for one model is exhausted, fall back to a cheaper one. */
 const MODEL_CHAIN = [
   "google/gemini-3.6-flash",
-  "google/gemini-2.5-flash",
-  "google/gemini-2.5-flash-lite",
+  "google/gemini-3.5-flash-lite",
 ];
 
 /**
@@ -39,7 +38,7 @@ const MODEL_CHAIN = [
  * chain. The critical marking standard is carried by the prompts in
  * study-prompts.ts; the Pro-tier model is what executes it reliably.
  */
-const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", ...MODEL_CHAIN];
+const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", ...MODEL_CHAIN];
 
 /**
  * Project's own Gemini key (direct Google API) — FIRST priority on every request.
@@ -47,19 +46,19 @@ const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pr
  * something to hit; Pro is tried after for mark/challenge quality.
  */
 const GOOGLE_MODEL_CHAIN = [
-  "gemini-2.5-flash",
+  "gemini-3.6-flash",
   "gemini-2.0-flash",
-  "gemini-2.5-flash-lite",
+  "gemini-3.5-flash-lite",
   "gemini-flash-latest",
-  "gemini-2.5-pro",
+  "gemini-3.1-pro-preview",
 ];
 
 /** Extra Pro-first chain for mark/challenge when a Gemini key is set. */
 const GOOGLE_MODEL_CHAIN_MARK = [
-  "gemini-2.5-pro",
-  "gemini-2.5-flash",
+  "gemini-3.1-pro-preview",
+  "gemini-3.6-flash",
   "gemini-2.0-flash",
-  "gemini-2.5-flash-lite",
+  "gemini-3.5-flash-lite",
   "gemini-flash-latest",
 ];
 

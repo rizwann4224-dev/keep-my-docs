@@ -12,17 +12,16 @@ const REQUEST_TIMEOUT_MS = 45_000;
 /** Same behaviour as the notebook: try the shared allowance first, then cheaper models. */
 const MODEL_CHAIN = [
   "google/gemini-3.6-flash",
-  "google/gemini-2.5-flash",
-  "google/gemini-2.5-flash-lite",
+  "google/gemini-3.5-flash-lite",
 ];
 
 /** Project's own Gemini key (direct Google API) — FIRST priority on every request. */
 const GOOGLE_MODEL_CHAIN = [
-  "gemini-2.5-flash",
+  "gemini-3.6-flash",
   "gemini-2.0-flash",
-  "gemini-2.5-flash-lite",
+  "gemini-3.5-flash-lite",
   "gemini-flash-latest",
-  "gemini-2.5-pro",
+  "gemini-3.1-pro-preview",
 ];
 
 /**
