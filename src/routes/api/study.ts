@@ -497,6 +497,20 @@ export const Route = createFileRoute("/api/study")({
         if (!upstream) {
           const groqKey = readKey("GROQ_API_KEY");
           if (groqKey) {
+            // Groq's on-demand tier caps a single request at ~8k tokens per
+            // minute, so the full notebook context (hundreds of thousands of
+            // characters) always came back 413 and the whole request ended as
+            // a 502. Send a trimmed prompt instead — head + tail of the source
+            // block keeps the instructions and the most relevant extract.
+            const groqUserContent = clampForGroq(userContent, 6_000);
+            const groqSystem = clampForGroq(
+              system,
+              Math.max(4_000, GROQ_MAX_PROMPT_CHARS - groqUserContent.length),
+            );
+            const groqMessages = [
+              { role: "system", content: groqSystem },
+              { role: "user", content: groqUserContent },
+            ];
             for (const model of GROQ_MODEL_CHAIN) {
               const remaining = deadline - Date.now();
               if (remaining <= 0) break;
@@ -516,11 +530,7 @@ export const Route = createFileRoute("/api/study")({
                       // gpt-oss models accept reasoning_effort; llama (retired)
                       // does not. See groqRequestParams.
                       ...groqRequestParams(model, data.mode),
-                      messages: [
-                        { role: "system", content: system },
-                        ...priorMessages,
-                        { role: "user", content: userContent },
-                      ],
+                      messages: groqMessages,
                     }),
                   },
                   Math.min(REQUEST_TIMEOUT_MS, remaining),
