@@ -58,7 +58,7 @@ const SIZE = {
   bandNotebook: 11.5,
   /** Body / answer text. */
   body: 11.5,
-  /** The question: bold and a shade smaller than the body text. */
+  /** The question: normal weight and a shade smaller than the body text. */
   question: 11,
   heading: 12.5,
   subheading: 12,
@@ -594,7 +594,7 @@ function renderMarkdown(body: string, r: Renderer) {
   if (openLevel !== -1) r.y += 3;
 }
 
-/** The question block used by the Ask export: bold, slightly smaller, in a light panel. */
+/** The question block used by the Ask export: normal weight, in a light panel. */
 function questionPanel(r: Renderer, text: string) {
   const doc = r.doc;
   const bar = 2.5;
@@ -603,7 +603,7 @@ function questionPanel(r: Renderer, text: string) {
   const size = SIZE.question;
   const lh = size * LEADING;
 
-  doc.setFont(FONT, "bold");
+  doc.setFont(FONT, "normal");
   doc.setFontSize(size);
   const avail = r.width - bar - padX * 2;
   const paragraphs = text
@@ -728,7 +728,7 @@ export function exportHistoryToPdf(data: HistoryExport) {
     label(r, "Question", 5);
     for (const raw of plain(entry.question).split("\n")) {
       const line = raw.trim();
-      if (line) r.write(line, { size: SIZE.question, style: "bold", gap: 4 });
+      if (line) r.write(line, { size: SIZE.question, style: "normal", gap: 4 });
     }
 
     r.y += 5;
