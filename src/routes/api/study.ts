@@ -437,87 +437,59 @@ export const Route = createFileRoute("/api/study")({
           }
         }
 
-        // 2) Shared Lovable gateway — only when a LOVABLE_API_KEY is present and
-        // the Gemini key failed (or was missing). Credit exhaustion (402) /
-        // policy block (403) is workspace-wide, not per-model: once seen, every
-        // further gateway model returns the same. Skip the whole gateway for a
-        // while and go straight to the project's own keys.
-        const gatewaySkipped =
-          !apiKey || (gatewayFailure !== null && gatewayFailure.until > Date.now());
-        if (!apiKey) {
-          gatewayError = "Shared gateway: LOVABLE_API_KEY not set";
-        } else if (gatewayFailure !== null && gatewayFailure.until > Date.now()) {
-          gatewayStatus = gatewayFailure.status;
-          gatewayError =
-            gatewayFailure.status === 402
-              ? "Shared gateway: credits exhausted (402) — skipped (cached)"
-              : `Shared gateway: previously failed (${gatewayFailure.status}) — skipped`;
-        }
-        for (const model of gatewaySkipped ? [] : chain) {
-          const remaining = deadline - Date.now();
-          if (remaining <= 0) break;
-
-          // openAiRequestParams adds the model's reasoning tier (and the old
-          // sampling, for the non-Gemini-3 models) — the thinking budget that
-          // makes a marking run deeper, not just longer.
-          const post = (withReasoning: boolean) =>
-            fetchWithTimeout(
-              GATEWAY,
-              {
-                method: "POST",
-                headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  model,
-                  stream: true,
-                  ...(withReasoning
-                    ? openAiRequestParams(model, data.mode)
-                    : openAiSamplingParams(model)),
-                  messages: [
-                    { role: "system", content: system },
-                    ...priorMessages,
-                    { role: "user", content: userContent },
-                  ],
-                }),
-              },
-              Math.min(REQUEST_TIMEOUT_MS, remaining),
-            );
-
-          let res: Response;
-          try {
-            res = await post(true);
-            // A gateway that does not know `reasoning_effort` answers 400/422.
-            // Retry once without it instead of losing the model over a knob.
-            if (res.status === 400 || res.status === 422) {
-              await res.body?.cancel();
-              res = await post(false);
+        // 4) Project's Grok (xAI) key — final personal-key fallback.
+        if (!upstream) {
+          const grokKey = readKey("GROK_API_KEY", "XAI_API_KEY");
+          if (grokKey) {
+            for (const model of GROK_MODEL_CHAIN) {
+              const remaining = deadline - Date.now();
+              if (remaining <= 0) break;
+              const post = (withReasoning: boolean) =>
+                fetchWithTimeout(
+                  "https://api.x.ai/v1/chat/completions",
+                  {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Bearer ${grokKey}`,
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      model,
+                      stream: true,
+                      temperature: 0.3,
+                      ...(withReasoning ? openAiRequestParams(model, data.mode) : {}),
+                      messages: [
+                        { role: "system", content: system },
+                        ...priorMessages,
+                        { role: "user", content: userContent },
+                      ],
+                    }),
+                  },
+                  Math.min(REQUEST_TIMEOUT_MS, remaining),
+                );
+              let res: Response;
+              try {
+                res = await post(true);
+                if (res.status === 400 || res.status === 422) {
+                  await res.body?.cancel();
+                  res = await post(false);
+                }
+              } catch (err) {
+                const why = err instanceof Error ? err.message : "timed out or unreachable";
+                grokError = `Grok fallback (${model}): ${why}`;
+                continue;
+              }
+              if (res.ok && res.body) {
+                upstream = res;
+                source = "grok";
+                servedModel = model;
+                break;
+              }
+              grokError = await describeHttpFailure(`Grok fallback (${model})`, res);
+              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
+              if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
             }
-          } catch {
-            // Timed out or network failure — the whole gateway host is
-            // unreachable, not just this model. Stop and fall through.
-            gatewayStatus = 504;
-            gatewayError = "Shared gateway: timed out or unreachable";
-            break;
           }
-          gatewayStatus = res.status;
-          if (res.ok && res.body) {
-            upstream = res;
-            servedModel = model;
-            break;
-          }
-          gatewayError = await describeHttpFailure("Shared gateway", res);
-          // Out of credits / blocked by policy — terminal for the whole
-          // gateway. Stop trying gateway models here and for the next 10
-          // minutes; the project keys below take over.
-          if (res.status === 402 || res.status === 403) {
-            gatewayFailure = { status: res.status, until: Date.now() + 10 * 60_000 };
-            break;
-          }
-          // 429 is a workspace-wide rate limit: every other model on the same
-          // gateway returns the same, so stop instead of burning seconds.
-          if (res.status === 429) break;
-          // 404 = unknown/retired model id — the next model may still work.
-          if (res.status === 404) continue;
-          break;
         }
 
         // 3) Project's Groq key — after Gemini and the gateway.
@@ -613,58 +585,88 @@ export const Route = createFileRoute("/api/study")({
           }
         }
 
-        // 4) Project's Grok (xAI) key — final personal-key fallback.
         if (!upstream) {
-          const grokKey = readKey("GROK_API_KEY", "XAI_API_KEY");
-          if (grokKey) {
-            for (const model of GROK_MODEL_CHAIN) {
-              const remaining = deadline - Date.now();
-              if (remaining <= 0) break;
-              const post = (withReasoning: boolean) =>
-                fetchWithTimeout(
-                  "https://api.x.ai/v1/chat/completions",
-                  {
-                    method: "POST",
-                    headers: {
-                      Authorization: `Bearer ${grokKey}`,
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      model,
-                      stream: true,
-                      temperature: 0.3,
-                      ...(withReasoning ? openAiRequestParams(model, data.mode) : {}),
-                      messages: [
-                        { role: "system", content: system },
-                        ...priorMessages,
-                        { role: "user", content: userContent },
-                      ],
-                    }),
-                  },
-                  Math.min(REQUEST_TIMEOUT_MS, remaining),
-                );
-              let res: Response;
-              try {
-                res = await post(true);
-                if (res.status === 400 || res.status === 422) {
-                  await res.body?.cancel();
-                  res = await post(false);
-                }
-              } catch (err) {
-                const why = err instanceof Error ? err.message : "timed out or unreachable";
-                grokError = `Grok fallback (${model}): ${why}`;
-                continue;
+          // 2) Shared Lovable gateway — only when a LOVABLE_API_KEY is present and
+          // the Gemini key failed (or was missing). Credit exhaustion (402) /
+          // policy block (403) is workspace-wide, not per-model: once seen, every
+          // further gateway model returns the same. Skip the whole gateway for a
+          // while and go straight to the project's own keys.
+          const gatewaySkipped =
+            !apiKey || (gatewayFailure !== null && gatewayFailure.until > Date.now());
+          if (!apiKey) {
+            gatewayError = "Shared gateway: LOVABLE_API_KEY not set";
+          } else if (gatewayFailure !== null && gatewayFailure.until > Date.now()) {
+            gatewayStatus = gatewayFailure.status;
+            gatewayError =
+              gatewayFailure.status === 402
+                ? "Shared gateway: credits exhausted (402) — skipped (cached)"
+                : `Shared gateway: previously failed (${gatewayFailure.status}) — skipped`;
+          }
+          for (const model of gatewaySkipped ? [] : chain) {
+            const remaining = deadline - Date.now();
+            if (remaining <= 0) break;
+
+            // openAiRequestParams adds the model's reasoning tier (and the old
+            // sampling, for the non-Gemini-3 models) — the thinking budget that
+            // makes a marking run deeper, not just longer.
+            const post = (withReasoning: boolean) =>
+              fetchWithTimeout(
+                GATEWAY,
+                {
+                  method: "POST",
+                  headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    model,
+                    stream: true,
+                    ...(withReasoning
+                      ? openAiRequestParams(model, data.mode)
+                      : openAiSamplingParams(model)),
+                    messages: [
+                      { role: "system", content: system },
+                      ...priorMessages,
+                      { role: "user", content: userContent },
+                    ],
+                  }),
+                },
+                Math.min(REQUEST_TIMEOUT_MS, remaining),
+              );
+
+            let res: Response;
+            try {
+              res = await post(true);
+              // A gateway that does not know `reasoning_effort` answers 400/422.
+              // Retry once without it instead of losing the model over a knob.
+              if (res.status === 400 || res.status === 422) {
+                await res.body?.cancel();
+                res = await post(false);
               }
-              if (res.ok && res.body) {
-                upstream = res;
-                source = "grok";
-                servedModel = model;
-                break;
-              }
-              grokError = await describeHttpFailure(`Grok fallback (${model})`, res);
-              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
-              if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
+            } catch {
+              // Timed out or network failure — the whole gateway host is
+              // unreachable, not just this model. Stop and fall through.
+              gatewayStatus = 504;
+              gatewayError = "Shared gateway: timed out or unreachable";
+              break;
             }
+            gatewayStatus = res.status;
+            if (res.ok && res.body) {
+              upstream = res;
+              servedModel = model;
+              break;
+            }
+            gatewayError = await describeHttpFailure("Shared gateway", res);
+            // Out of credits / blocked by policy — terminal for the whole
+            // gateway. Stop trying gateway models here and for the next 10
+            // minutes; the project keys below take over.
+            if (res.status === 402 || res.status === 403) {
+              gatewayFailure = { status: res.status, until: Date.now() + 10 * 60_000 };
+              break;
+            }
+            // 429 is a workspace-wide rate limit: every other model on the same
+            // gateway returns the same, so stop instead of burning seconds.
+            if (res.status === 429) break;
+            // 404 = unknown/retired model id — the next model may still work.
+            if (res.status === 404) continue;
+            break;
           }
         }
 
