@@ -69,6 +69,21 @@ const GOOGLE_MODEL_CHAIN_MARK = [
  */
 const GROQ_MODEL_CHAIN = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
 
+/**
+ * Groq's on-demand tier limits a single request to ~8000 tokens per minute, so
+ * the full notebook context must be trimmed before it is sent there. Roughly
+ * 4 chars/token, minus room for the reply.
+ */
+const GROQ_MAX_PROMPT_CHARS = 18_000;
+
+/** Keep the head (instructions) and tail (most relevant extract) of a prompt. */
+function clampForGroq(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max * 0.6);
+  const tail = max - head;
+  return `${text.slice(0, head)}\n\n…[context trimmed to fit the fallback model's size limit]…\n\n${text.slice(-tail)}`;
+}
+
 /** Third personal-key fallback (direct xAI / Grok API). */
 const GROK_MODEL_CHAIN = ["grok-4-fast-reasoning", "grok-4-fast-non-reasoning", "grok-3"];
 
