@@ -71,12 +71,37 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/** Download a remote image and return it as a Gemini inline_data part. */
+/**
+ * Turn an image reference into a Gemini inline_data part.
+ *
+ * Page images produced by the browser are `data:image/jpeg;base64,…` URLs. The
+ * serverless runtime's `fetch` cannot open a `data:` URL, so those were silently
+ * dropped and the OCR request reached Gemini with no image at all (empty
+ * transcription). Decode them directly; only real http(s) URLs are downloaded.
+ */
 async function fetchImageAsInlineData(
   url: string,
 ): Promise<{ inline_data: { mime_type: string; data: string } } | null> {
+  const trimmed = url.trim();
+  if (trimmed.startsWith("data:")) {
+    const comma = trimmed.indexOf(",");
+    if (comma < 0) return null;
+    const header = trimmed.slice(5, comma); // e.g. "image/jpeg;base64"
+    const mime = header.split(";")[0]?.trim() || "image/jpeg";
+    const payload = trimmed.slice(comma + 1);
+    if (!header.includes("base64")) {
+      // Percent-encoded data URL — re-encode as base64.
+      const decoded = decodeURIComponent(payload);
+      const bytes = new Uint8Array(decoded.length);
+      for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i) & 0xff;
+      return { inline_data: { mime_type: mime, data: toBase64(bytes) } };
+    }
+    const data = payload.replace(/\s/g, "");
+    if (!data) return null;
+    return { inline_data: { mime_type: mime, data } };
+  }
   try {
-    const res = await fetchWithTimeout(url, {}, IMAGE_TIMEOUT_MS);
+    const res = await fetchWithTimeout(trimmed, {}, IMAGE_TIMEOUT_MS);
     if (!res.ok) return null;
     const mime = res.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
     const bytes = new Uint8Array(await res.arrayBuffer());
@@ -89,12 +114,24 @@ async function fetchImageAsInlineData(
 async function toGeminiParts(content: string | Part[]): Promise<GeminiPart[]> {
   if (typeof content === "string") return [{ text: content }];
   const parts: GeminiPart[] = [];
+  let images = 0;
+  let attached = 0;
   for (const part of content) {
     if (part.type === "text") parts.push({ text: part.text });
     else {
+      images++;
       const inline = await fetchImageAsInlineData(part.image_url.url);
-      if (inline) parts.push(inline);
+      if (inline) {
+        parts.push(inline);
+        attached++;
+      }
     }
+  }
+  // Never send a vision request with every page image dropped — that silently
+  // produces an empty or invented transcription. Fail loudly so the caller
+  // retries or falls through to the next provider.
+  if (images > 0 && attached === 0) {
+    throw new Error("Page images could not be attached to the OCR request.");
   }
   return parts;
 }
