@@ -3,8 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
   askSystemPrompt,
+  buildCoverageBlock,
   buildLessonsBlock,
   challengeSystemPrompt,
+  countSubmissionQuestions,
   examSetterSystemPrompt,
   insightsSystemPrompt,
   buildRelevantSourceBlock,
@@ -133,6 +135,110 @@ const Body = z.object({
   maxMarks: z.number().optional(),
 });
 
+// ---- Deterministic marking cache -----------------------------------------
+// Re-marking the SAME question + answer at the SAME severity must return the
+// SAME marks. A live model call can never guarantee that (sampling variance and
+// the fallback chain may even serve a different model), so an identical repeat
+// submission replays its previous verdict verbatim instead of being re-rolled.
+// Freshness guards invalidate the replay when the notebook changed (new source
+// documents or new flagged lessons), because those legitimately change marking.
+
+/** Whitespace differences never change a mark. */
+const normalizeForCache = (text: string | null | undefined): string =>
+  (text ?? "").replace(/\s+/g, " ").trim();
+
+/** Every section a full marking run can produce, in prompt order. */
+const ALL_MARK_PARTS: MarkPart[] = ["feedback", "marks", "suggested", "recommendations"];
+
+/** Severity a stored marking output was produced under (its declaration line). */
+function severityOfMarking(response: string): Rigour | null {
+  const match = /\bSeverity:\s*(MODERATE|STRICT|HARD)\b/i.exec(response);
+  return match ? (match[1]!.toLowerCase() as Rigour) : null;
+}
+
+/** Which of the four output sections a stored marking response contains. */
+function partsOfMarking(response: string): Set<string> {
+  const found = new Set<string>();
+  if (/^#{1,4}\s*🔍/m.test(response) || /Item-by-Item Detailed Marking/i.test(response))
+    found.add("feedback");
+  if (/^#{1,4}\s*📊/m.test(response)) found.add("marks");
+  if (/^#{1,4}\s*✅/m.test(response)) found.add("suggested");
+  if (/^#{1,4}\s*🎯/m.test(response)) found.add("recommendations");
+  return found;
+}
+
+/** Structural minimum of the Supabase query builder the replay lookup uses
+ *  (the client here is created without Database types, so its rows are untyped). */
+type ReplayRows = { data: unknown; error?: unknown };
+type ReplayQuery = {
+  eq: (column: string, value: string) => ReplayQuery;
+  order: (column: string, options: { ascending: boolean }) => ReplayQuery;
+  limit: (count: number) => PromiseLike<ReplayRows>;
+};
+type ReplaySupabase = { from: (table: string) => { select: (columns: string) => ReplayQuery } };
+
+type MarkingRow = { user_answer: string | null; response: string; created_at: string };
+
+/**
+ * The stored verdict for an identical earlier submission, or null. A replay
+ * requires ALL of: same subject, same question, same answer, same severity,
+ * same requested sections, and no new documents/lessons recorded since it.
+ */
+async function findMarkingReplay(
+  supabase: ReplaySupabase,
+  data: {
+    subjectId: string;
+    question: string;
+    userAnswer?: string | undefined;
+    parts?: MarkPart[] | undefined;
+    rigour?: Rigour | undefined;
+  },
+): Promise<{ response: string; createdAt: string } | null> {
+  const rigour = data.rigour ?? "strict";
+  const parts = (data.parts?.length ? [...data.parts] : ALL_MARK_PARTS).sort();
+  const rowsResult = await supabase
+    .from("qa_entries")
+    .select("user_answer, response, created_at")
+    .eq("subject_id", data.subjectId)
+    .eq("mode", "mark")
+    .eq("question", data.question)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  const rows = (rowsResult.data ?? []) as MarkingRow[];
+  if (rows.length === 0) return null;
+
+  const answer = normalizeForCache(data.userAnswer ?? "");
+  const match = rows.find((row) => {
+    if (normalizeForCache(row.user_answer) !== answer) return false;
+    if (severityOfMarking(row.response) !== rigour) return false;
+    const have = partsOfMarking(row.response);
+    return parts.length > 0 && parts.every((p) => have.has(p)) && have.size === parts.length;
+  });
+  if (!match) return null;
+
+  // The notebook moved on after that verdict — new source documents or flagged
+  // lessons change what the marker must apply, so re-mark live instead.
+  const [docResult, noteResult] = await Promise.all([
+    supabase
+      .from("documents")
+      .select("created_at")
+      .eq("subject_id", data.subjectId)
+      .order("created_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("learning_notes")
+      .select("created_at")
+      .eq("subject_id", data.subjectId)
+      .order("created_at", { ascending: false })
+      .limit(1),
+  ]);
+  const newestDocAt = ((docResult.data ?? []) as { created_at?: string }[])[0]?.created_at ?? "";
+  const newestNoteAt = ((noteResult.data ?? []) as { created_at?: string }[])[0]?.created_at ?? "";
+  if (newestDocAt > match.created_at || newestNoteAt > match.created_at) return null;
+
+  return { response: match.response, createdAt: match.created_at };
+}
+
 export const Route = createFileRoute("/api/study")({
   server: {
     handlers: {
@@ -161,6 +267,51 @@ export const Route = createFileRoute("/api/study")({
         if (!parsed.success) return new Response("Bad request", { status: 400 });
         const data = parsed.data;
 
+        // Deterministic marking: the identical question + answer, re-submitted at
+        // the same severity, replays its previous verdict verbatim — same marks,
+        // guaranteed — instead of re-rolling a live model that may sample (or be
+        // served by a different fallback model) differently. Any change to the
+        // severity, the answer, the requested sections, or the notebook's
+        // documents/lessons falls through to a fresh live marking below.
+        if (data.mode === "mark") {
+          try {
+            const cached = await findMarkingReplay(supabase as unknown as ReplaySupabase, {
+              subjectId: data.subjectId,
+              question: data.question,
+              userAnswer: data.userAnswer,
+              parts: data.parts as MarkPart[] | undefined,
+              rigour: data.rigour as Rigour | undefined,
+            });
+            if (cached) {
+              console.error(
+                `[study] mark replay — identical submission at the same severity, reusing verdict from ${cached.createdAt}`,
+              );
+              const encoder = new TextEncoder();
+              const body = new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(encoder.encode(cached.response));
+                  controller.close();
+                },
+              });
+              return new Response(body, {
+                headers: {
+                  "Content-Type": "text/plain; charset=utf-8",
+                  "Cache-Control": "no-cache, no-transform",
+                  "X-Accel-Buffering": "no",
+                  "X-Study-Model":
+                    "replay (identical submission → identical marks; no model call)",
+                },
+              });
+            }
+          } catch (err) {
+            // The replay path must never break live marking — a lookup hiccup
+            // simply means this request is marked fresh.
+            console.error(
+              `[study] mark replay lookup failed, marking live: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+
         // Insights never reads source documents — skipping the (large) extracted_text
         // fetch is the single biggest latency win for the diagnostic.
         const [{ data: docs }, { data: notes }] = await Promise.all([
@@ -180,6 +331,14 @@ export const Route = createFileRoute("/api/study")({
         const lessons = buildLessonsBlock(notes ?? []);
 
         let system: string;
+        // Detect a full-paper submission before any prompt is built (cheap; used
+        // by both retrieval and the user-content manifest below).
+        const questionCount = data.mode === "mark" ? countSubmissionQuestions(data.question) : 0;
+        // Hand the marker the manifest explicitly so it cannot mark Q.1 and stop.
+        const manifestHint =
+          questionCount >= 2
+            ? `\n\nSUBMISSION MANIFEST (detected automatically): this submission contains ${questionCount} distinct numbered questions. Per MULTI-QUESTION SUBMISSIONS you MUST mark EVERY one of them separately — each question gets its own source sweep, mark plan, item feedback, marks rows and subtotal, followed by the GRAND TOTAL row. Marking only question 1 is a failed evaluation.`
+            : "";
         if (data.mode === "insights") {
           const { data: attempts } = await supabase
             .from("qa_entries")
@@ -211,7 +370,16 @@ export const Route = createFileRoute("/api/study")({
               : data.mode === "exam"
                 ? 300_000
                 : 350_000;
-          const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery, budget);
+          // A full past paper pasted in one go (several numbered questions, each
+          // with an answer) needs EVEN coverage of every source: keyword
+          // retrieval ranks question 1's passages highest and starves the later
+          // questions' official answers and marking guides — which is exactly
+          // why only Q.1 used to get marked. Even coverage gives every
+          // question's scenario, suggested answer and marking guide a seat.
+          const sources =
+            data.mode === "mark" && questionCount >= 2
+              ? buildCoverageBlock(docs ?? [], budget)
+              : buildRelevantSourceBlock(docs ?? [], retrievalQuery, budget);
           system =
             data.mode === "mark"
               ? markSystemPrompt(
@@ -235,7 +403,7 @@ export const Route = createFileRoute("/api/study")({
           data.mode === "insights"
             ? "Produce the performance diagnostic now."
             : data.mode === "mark"
-              ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
+              ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}${manifestHint}`
               : data.mode === "exam"
                 ? `EXAM BRIEF FROM THE CANDIDATE:\n${data.question}${
                     (data.priorQuestions ?? []).filter((q) => q.trim().length > 0).length
