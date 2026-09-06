@@ -101,7 +101,7 @@ places:
 ## Deterministic marking (same input → same marks)
 
 Re-submitting the identical question + answer at the same severity replays the
-previous verdict verbatim — identical marks, guaranteed — instead of re-rolling
+previous verdict verbatim — **the same marks and the same words** — identical marks, guaranteed — instead of re-rolling
 a live model that samples differently (and may sit behind a fallback chain of
 different models). The replay applies only when the subject, question, answer,
 severity AND requested sections all match, and is invalidated when the notebook
@@ -110,6 +110,27 @@ those legitimately change how the answer must be marked. Changing the severity
 (strict → hard, etc.) always re-marks live. Live marking itself is also more
 mechanical now: re-mark-consistency rules freeze point weights so the same
 words earn the same marks every time.
+
+Three layers guarantee it:
+
+1. **In-tab verdict cache** (`src/lib/marking-cache.ts`) — a repeat submission
+   with an identical fingerprint replays the verdict already on screen with no
+   model call at all. Cleared automatically on `documents-changed` and
+   `lessons-changed`.
+2. **Exact server-side replay** — each stored marking verdict carries an
+   invisible `<!-- mark-fingerprint:… -->` comment covering mode, notebook,
+   severity, requested sections, question, answer and (for challenges) the
+   query and the verdict being challenged. Replay matches on that hash instead
+   of sniffing the previous output's headings, which used to let an unchanged
+   submission fall through to a freshly sampled re-mark. The marker is stripped
+   before display, export and replay. Challenge mode is now replayed too.
+3. **Greedy sampling for marking** — mark/challenge requests send
+   `temperature: 0, top_p: 0.1` on every provider in the fallback chain (the
+   Grok path was still sending `0.3`), so even a genuine live re-mark has no
+   sampling variance to introduce.
+
+Changing the severity (strict → hard), the answer, the question, the requested
+sections, or the notebook's documents/lessons always re-marks live.
 
 ## Using all sources
 

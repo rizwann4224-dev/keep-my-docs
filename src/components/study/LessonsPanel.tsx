@@ -30,6 +30,8 @@ export function LessonsPanel({ subjectId }: { subjectId: string }) {
     onSuccess: () => {
       toast.success("Correction removed");
       queryClient.invalidateQueries({ queryKey: ["lessons", subjectId] });
+      // Removing a lesson changes marking too — drop cached verdicts.
+      window.dispatchEvent(new CustomEvent("lessons-changed"));
     },
   });
 

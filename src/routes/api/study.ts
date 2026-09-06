@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -28,10 +30,7 @@ import { ensureServerEnv, readServerKey } from "@/lib/load-env";
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 /** Tried in order — if the budget for one model is exhausted, fall back to a cheaper one. */
-const MODEL_CHAIN = [
-  "google/gemini-3.6-flash",
-  "google/gemini-3.5-flash-lite",
-];
+const MODEL_CHAIN = ["google/gemini-3.6-flash", "google/gemini-3.5-flash-lite"];
 
 /**
  * Marking and challenges need the strongest reasoning available on the shared
@@ -143,12 +142,55 @@ const Body = z.object({
 // Freshness guards invalidate the replay when the notebook changed (new source
 // documents or new flagged lessons), because those legitimately change marking.
 
-/** Whitespace differences never change a mark. */
-const normalizeForCache = (text: string | null | undefined): string =>
-  (text ?? "").replace(/\s+/g, " ").trim();
-
 /** Every section a full marking run can produce, in prompt order. */
 const ALL_MARK_PARTS: MarkPart[] = ["feedback", "marks", "suggested", "recommendations"];
+
+/** Whitespace and case differences never change a mark. */
+const normalizeForCache = (text: string | null | undefined): string =>
+  (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * A stable fingerprint of everything that legitimately changes a verdict. It is
+ * appended to the stored marking output as an HTML comment (invisible in the
+ * rendered markdown, and stripped again before the verdict is replayed), so a
+ * repeat submission is matched EXACTLY instead of being re-derived by parsing
+ * headings out of the previous output — heading-sniffing is what used to let an
+ * unchanged submission fall through to a freshly sampled, differently scored
+ * re-mark.
+ */
+const MARK_FINGERPRINT_RE = /\n?<!--\s*mark-fingerprint:([^\s>]+)\s*-->\s*$/;
+
+function markFingerprint(input: {
+  mode: string;
+  subjectId: string;
+  question: string;
+  userAnswer?: string | undefined;
+  parts?: MarkPart[] | undefined;
+  rigour?: Rigour | undefined;
+  challengeQuery?: string | undefined;
+  originalEvaluation?: string | undefined;
+}): string {
+  const parts = (input.parts?.length ? [...input.parts] : ALL_MARK_PARTS).sort().join(",");
+  const payload = [
+    input.mode,
+    input.subjectId,
+    input.rigour ?? "strict",
+    parts,
+    normalizeForCache(input.question),
+    normalizeForCache(input.userAnswer),
+    normalizeForCache(input.challengeQuery),
+    normalizeForCache(input.originalEvaluation),
+  ].join("\u0000");
+  return createHash("sha256").update(payload).digest("hex").slice(0, 32);
+}
+
+/** The fingerprint stored with a saved verdict, if it carries one. */
+const fingerprintOfStored = (response: string): string | null =>
+  MARK_FINGERPRINT_RE.exec(response)?.[1] ?? null;
+
+/** The verdict as the candidate should see it — without the fingerprint marker. */
+const stripFingerprint = (response: string): string =>
+  response.replace(MARK_FINGERPRINT_RE, "").trimEnd();
 
 /** Severity a stored marking output was produced under (its declaration line). */
 function severityOfMarking(response: string): Rigour | null {
@@ -183,24 +225,34 @@ type MarkingRow = { user_answer: string | null; response: string; created_at: st
  * The stored verdict for an identical earlier submission, or null. A replay
  * requires ALL of: same subject, same question, same answer, same severity,
  * same requested sections, and no new documents/lessons recorded since it.
+ *
+ * Matching is primarily by the exact fingerprint stored with the verdict. The
+ * older heading-sniffing path is kept only for verdicts saved before
+ * fingerprints existed — it is approximate, and an unchanged submission whose
+ * stored output merely formatted its headings differently used to slip past it
+ * and get re-marked live (producing different marks for identical input).
  */
 async function findMarkingReplay(
   supabase: ReplaySupabase,
   data: {
     subjectId: string;
+    mode: "mark" | "challenge";
     question: string;
     userAnswer?: string | undefined;
     parts?: MarkPart[] | undefined;
     rigour?: Rigour | undefined;
+    challengeQuery?: string | undefined;
+    originalEvaluation?: string | undefined;
   },
 ): Promise<{ response: string; createdAt: string } | null> {
   const rigour = data.rigour ?? "strict";
   const parts = (data.parts?.length ? [...data.parts] : ALL_MARK_PARTS).sort();
+  const wanted = markFingerprint(data);
   const rowsResult = await supabase
     .from("qa_entries")
     .select("user_answer, response, created_at")
     .eq("subject_id", data.subjectId)
-    .eq("mode", "mark")
+    .eq("mode", data.mode)
     .eq("question", data.question)
     .order("created_at", { ascending: false })
     .limit(10);
@@ -208,12 +260,18 @@ async function findMarkingReplay(
   if (rows.length === 0) return null;
 
   const answer = normalizeForCache(data.userAnswer ?? "");
-  const match = rows.find((row) => {
-    if (normalizeForCache(row.user_answer) !== answer) return false;
-    if (severityOfMarking(row.response) !== rigour) return false;
-    const have = partsOfMarking(row.response);
-    return parts.length > 0 && parts.every((p) => have.has(p)) && have.size === parts.length;
-  });
+  // Exact match first: identical inputs, byte-for-byte identical verdict.
+  const match =
+    rows.find((row) => fingerprintOfStored(row.response) === wanted) ??
+    // Legacy verdicts (no fingerprint stored) fall back to structural matching.
+    rows.find((row) => {
+      if (fingerprintOfStored(row.response) !== null) return false;
+      if (data.mode !== "mark") return false;
+      if (normalizeForCache(row.user_answer) !== answer) return false;
+      if (severityOfMarking(row.response) !== rigour) return false;
+      const have = partsOfMarking(row.response);
+      return parts.length > 0 && parts.every((p) => have.has(p)) && have.size === parts.length;
+    });
   if (!match) return null;
 
   // The notebook moved on after that verdict — new source documents or flagged
@@ -236,7 +294,7 @@ async function findMarkingReplay(
   const newestNoteAt = ((noteResult.data ?? []) as { created_at?: string }[])[0]?.created_at ?? "";
   if (newestDocAt > match.created_at || newestNoteAt > match.created_at) return null;
 
-  return { response: match.response, createdAt: match.created_at };
+  return { response: stripFingerprint(match.response), createdAt: match.created_at };
 }
 
 export const Route = createFileRoute("/api/study")({
@@ -273,14 +331,17 @@ export const Route = createFileRoute("/api/study")({
         // served by a different fallback model) differently. Any change to the
         // severity, the answer, the requested sections, or the notebook's
         // documents/lessons falls through to a fresh live marking below.
-        if (data.mode === "mark") {
+        if (data.mode === "mark" || data.mode === "challenge") {
           try {
             const cached = await findMarkingReplay(supabase as unknown as ReplaySupabase, {
               subjectId: data.subjectId,
+              mode: data.mode,
               question: data.question,
               userAnswer: data.userAnswer,
               parts: data.parts as MarkPart[] | undefined,
               rigour: data.rigour as Rigour | undefined,
+              challengeQuery: data.challengeQuery,
+              originalEvaluation: data.originalEvaluation,
             });
             if (cached) {
               console.error(
@@ -298,8 +359,7 @@ export const Route = createFileRoute("/api/study")({
                   "Content-Type": "text/plain; charset=utf-8",
                   "Cache-Control": "no-cache, no-transform",
                   "X-Accel-Buffering": "no",
-                  "X-Study-Model":
-                    "replay (identical submission → identical marks; no model call)",
+                  "X-Study-Model": "replay (identical submission → identical marks; no model call)",
                 },
               });
             }
@@ -638,7 +698,11 @@ export const Route = createFileRoute("/api/study")({
                     body: JSON.stringify({
                       model,
                       stream: true,
-                      temperature: 0.3,
+                      // Marking must be reproducible: the same script marked
+                      // again has to score the same, so mark/challenge sample
+                      // greedily instead of at the conversational default.
+                      temperature: data.mode === "mark" || data.mode === "challenge" ? 0 : 0.3,
+                      ...(data.mode === "mark" || data.mode === "challenge" ? { top_p: 0.1 } : {}),
                       ...(withReasoning ? openAiRequestParams(model, data.mode) : {}),
                       messages: [
                         { role: "system", content: system },
@@ -751,7 +815,6 @@ export const Route = createFileRoute("/api/study")({
                         temperature: 0,
                         top_p: 0.1,
                         messages: groqMessages,
-
                       }),
                     },
                     Math.min(REQUEST_TIMEOUT_MS, retryRemaining),
@@ -812,7 +875,10 @@ export const Route = createFileRoute("/api/study")({
                 GATEWAY,
                 {
                   method: "POST",
-                  headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+                  headers: {
+                    Authorization: `Bearer ${apiKey}`,
+                    "Content-Type": "application/json",
+                  },
                   body: JSON.stringify({
                     model,
                     stream: true,
@@ -948,54 +1014,72 @@ export const Route = createFileRoute("/api/study")({
                 }
                 full += decoder.decode();
               } else {
-              for (;;) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() ?? "";
-                for (const line of lines) {
-                  const trimmed = line.trim();
-                  if (!trimmed.startsWith("data:")) continue;
-                  const payload = trimmed.slice(5).trim();
-                  if (payload === "[DONE]") continue;
-                  try {
-                    const json = JSON.parse(payload) as {
-                      choices?: { delta?: { content?: string } }[];
-                      candidates?: {
-                        content?: { parts?: { text?: string; thought?: boolean }[] };
-                      }[];
-                    };
-                    const delta =
-                      source === "google"
-                        ? (json.candidates?.[0]?.content?.parts ?? [])
-                            // Reasoning summaries arrive as parts flagged
-                            // `thought: true` — scaffolding, not the answer.
-                            .filter((p) => !p.thought)
-                            .map((p) => p.text ?? "")
-                            .join("")
-                        : json.choices?.[0]?.delta?.content;
-                    if (delta) {
-                      full += delta;
-                      controller.enqueue(encoder.encode(delta));
+                for (;;) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  buffer += decoder.decode(value, { stream: true });
+                  const lines = buffer.split("\n");
+                  buffer = lines.pop() ?? "";
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith("data:")) continue;
+                    const payload = trimmed.slice(5).trim();
+                    if (payload === "[DONE]") continue;
+                    try {
+                      const json = JSON.parse(payload) as {
+                        choices?: { delta?: { content?: string } }[];
+                        candidates?: {
+                          content?: { parts?: { text?: string; thought?: boolean }[] };
+                        }[];
+                      };
+                      const delta =
+                        source === "google"
+                          ? (json.candidates?.[0]?.content?.parts ?? [])
+                              // Reasoning summaries arrive as parts flagged
+                              // `thought: true` — scaffolding, not the answer.
+                              .filter((p) => !p.thought)
+                              .map((p) => p.text ?? "")
+                              .join("")
+                          : json.choices?.[0]?.delta?.content;
+                      if (delta) {
+                        full += delta;
+                        controller.enqueue(encoder.encode(delta));
+                      }
+                    } catch {
+                      /* ignore partial json */
                     }
-                  } catch {
-                    /* ignore partial json */
                   }
                 }
-              }
               } // end SSE branch
             } finally {
               // Save BEFORE closing the stream: once the response closes the
               // worker can be torn down and a pending insert would be dropped.
               if (full && data.mode !== "insights") {
+                // Marking verdicts carry their input fingerprint so an identical
+                // resubmission replays this exact verdict instead of being
+                // re-marked live (which would sample different marks). The
+                // marker is an HTML comment: invisible in the rendered output,
+                // and stripped again on replay.
+                const stamped =
+                  data.mode === "mark" || data.mode === "challenge"
+                    ? `${full}\n<!-- mark-fingerprint:${markFingerprint({
+                        mode: data.mode,
+                        subjectId: data.subjectId,
+                        question: data.question,
+                        userAnswer: data.userAnswer,
+                        parts: data.parts as MarkPart[] | undefined,
+                        rigour: data.rigour as Rigour | undefined,
+                        challengeQuery: data.challengeQuery,
+                        originalEvaluation: data.originalEvaluation,
+                      })} -->`
+                    : full;
                 const { error } = await supabase.from("qa_entries").insert({
                   user_id: userId,
                   subject_id: data.subjectId,
                   mode: data.mode,
                   question: data.question,
                   user_answer: data.userAnswer ?? null,
-                  response: full,
+                  response: stamped,
                 });
                 if (error) console.error("qa_entries insert failed", error.message);
               }
