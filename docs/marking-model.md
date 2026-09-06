@@ -40,8 +40,25 @@ gateway:
   and every criticism naming the exact gap.
 - **Evidence rule** — a point is credited only when the marker can quote the
   candidate's exact words that earn it; otherwise it scores zero.
+- **Claim-by-claim decomposition (no holistic scoring)** — the answer is split
+  into individual claims, each tagged *correct-and-relevant*, *correct-but-
+  irrelevant*, *partially correct*, *vague hedging* or *wrong*. Only the first
+  tag can carry full credit; hedging that commits to nothing checkable scores
+  zero even though it is not false.
+- **Gap audit** — the marker explicitly lists every mark-plan element the
+  candidate never wrote, so marks are lost for what is missing and not only
+  earned for what is present (the classic inflation route).
+- **Reasoning-supports-conclusion check** — a right answer reached by flawed,
+  unstated or missing logic scores zero in method-based work.
+- **Ambiguity resolves against the candidate** — a statement readable either as
+  correct or as a common misconception is recorded as insufficient, not given
+  the charitable reading.
+- **No number before the analysis** — forming a total first and justifying it
+  backwards is forbidden; the total must reconcile as *marks available − named
+  deductions*, and a coverage cross-check caps it at the proportion of the mark
+  plan actually addressed with applied, quotable content.
 - **Calibration anchors + worked example** — a broadly-correct-but-generic
-  answer must land at 40–60%, and the prompt contains a worked example of a
+  answer must land at 35–50%, and the prompt contains a worked example of a
   fluent, generic answer correctly marked near zero (the exact failure pattern
   that previously produced inflated marks). Severity positions the total within
   a band: moderate accepts the middle, strict aims for the lower half, hard for
