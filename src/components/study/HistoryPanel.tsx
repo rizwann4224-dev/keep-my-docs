@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, FileDown, FileText } from "lucide-react";
+import { stripMarkFingerprint } from "@/lib/marking-cache";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -83,7 +84,10 @@ export function HistoryPanel({
       else if (mode === "ask") query = query.in("mode", ["ask", "exam"]);
       const { data, error } = await query.order("created_at", { ascending: false }).limit(50);
       if (error) throw error;
-      return data as Entry[];
+      return (data as Entry[]).map((entry) => ({
+        ...entry,
+        response: stripMarkFingerprint(entry.response),
+      }));
     },
   });
 

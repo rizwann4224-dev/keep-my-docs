@@ -30,13 +30,16 @@ const EFFORTS: ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
  * Depth per task. Marking, exam-setting and challenge review are the tasks where
  * a wrong number costs the student marks, so they get the deepest thinking.
  * Ask/insights stay a tier lower because they are conversational and the first
- * token has to arrive quickly.
+ * token has to arrive quickly. Marking and challenges run at the MAXIMUM tier:
+ * critical evaluation of an exam script (and strict re-verification of it) is a
+ * pure reasoning task, and deeper thinking is what keeps strict/hard marking
+ * rigorous instead of generous.
  */
 const MODE_EFFORT: Record<StudyMode, ReasoningEffort> = {
   ask: "medium",
-  mark: "high",
+  mark: "xhigh",
   exam: "high",
-  challenge: "high",
+  challenge: "xhigh",
   insights: "medium",
 };
 

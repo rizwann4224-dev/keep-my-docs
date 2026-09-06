@@ -1,10 +1,14 @@
+import { createHash } from "node:crypto";
+
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
   askSystemPrompt,
+  buildCoverageBlock,
   buildLessonsBlock,
   challengeSystemPrompt,
+  countSubmissionQuestions,
   examSetterSystemPrompt,
   insightsSystemPrompt,
   buildRelevantSourceBlock,
@@ -26,11 +30,7 @@ import { ensureServerEnv, readServerKey } from "@/lib/load-env";
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 /** Tried in order — if the budget for one model is exhausted, fall back to a cheaper one. */
-const MODEL_CHAIN = [
-  "google/gemini-3.6-flash",
-  "google/gemini-2.5-flash",
-  "google/gemini-2.5-flash-lite",
-];
+const MODEL_CHAIN = ["google/gemini-3.6-flash", "google/gemini-3.5-flash-lite"];
 
 /**
  * Marking and challenges need the strongest reasoning available on the shared
@@ -39,7 +39,7 @@ const MODEL_CHAIN = [
  * chain. The critical marking standard is carried by the prompts in
  * study-prompts.ts; the Pro-tier model is what executes it reliably.
  */
-const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", ...MODEL_CHAIN];
+const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", ...MODEL_CHAIN];
 
 /**
  * Project's own Gemini key (direct Google API) — FIRST priority on every request.
@@ -47,19 +47,19 @@ const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", "google/gemini-2.5-pr
  * something to hit; Pro is tried after for mark/challenge quality.
  */
 const GOOGLE_MODEL_CHAIN = [
-  "gemini-2.5-flash",
+  "gemini-3.6-flash",
   "gemini-2.0-flash",
-  "gemini-2.5-flash-lite",
+  "gemini-3.5-flash-lite",
   "gemini-flash-latest",
-  "gemini-2.5-pro",
+  "gemini-3.1-pro-preview",
 ];
 
 /** Extra Pro-first chain for mark/challenge when a Gemini key is set. */
 const GOOGLE_MODEL_CHAIN_MARK = [
-  "gemini-2.5-pro",
-  "gemini-2.5-flash",
+  "gemini-3.1-pro-preview",
+  "gemini-3.6-flash",
   "gemini-2.0-flash",
-  "gemini-2.5-flash-lite",
+  "gemini-3.5-flash-lite",
   "gemini-flash-latest",
 ];
 
@@ -69,6 +69,21 @@ const GOOGLE_MODEL_CHAIN_MARK = [
  * developer tiers — use the current production replacements only.
  */
 const GROQ_MODEL_CHAIN = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
+
+/**
+ * Groq's on-demand tier limits a single request to ~8000 tokens per minute, so
+ * the full notebook context must be trimmed before it is sent there. Roughly
+ * 4 chars/token, minus room for the reply.
+ */
+const GROQ_MAX_PROMPT_CHARS = 18_000;
+
+/** Keep the head (instructions) and tail (most relevant extract) of a prompt. */
+function clampForGroq(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max * 0.6);
+  const tail = max - head;
+  return `${text.slice(0, head)}\n\n…[context trimmed to fit the fallback model's size limit]…\n\n${text.slice(-tail)}`;
+}
 
 /** Third personal-key fallback (direct xAI / Grok API). */
 const GROK_MODEL_CHAIN = ["grok-4-fast-reasoning", "grok-4-fast-non-reasoning", "grok-3"];
@@ -119,6 +134,169 @@ const Body = z.object({
   maxMarks: z.number().optional(),
 });
 
+// ---- Deterministic marking cache -----------------------------------------
+// Re-marking the SAME question + answer at the SAME severity must return the
+// SAME marks. A live model call can never guarantee that (sampling variance and
+// the fallback chain may even serve a different model), so an identical repeat
+// submission replays its previous verdict verbatim instead of being re-rolled.
+// Freshness guards invalidate the replay when the notebook changed (new source
+// documents or new flagged lessons), because those legitimately change marking.
+
+/** Every section a full marking run can produce, in prompt order. */
+const ALL_MARK_PARTS: MarkPart[] = ["feedback", "marks", "suggested", "recommendations"];
+
+/** Whitespace and case differences never change a mark. */
+const normalizeForCache = (text: string | null | undefined): string =>
+  (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * A stable fingerprint of everything that legitimately changes a verdict. It is
+ * appended to the stored marking output as an HTML comment (invisible in the
+ * rendered markdown, and stripped again before the verdict is replayed), so a
+ * repeat submission is matched EXACTLY instead of being re-derived by parsing
+ * headings out of the previous output — heading-sniffing is what used to let an
+ * unchanged submission fall through to a freshly sampled, differently scored
+ * re-mark.
+ */
+const MARK_FINGERPRINT_RE = /\n?<!--\s*mark-fingerprint:([^\s>]+)\s*-->\s*$/;
+
+function markFingerprint(input: {
+  mode: string;
+  subjectId: string;
+  question: string;
+  userAnswer?: string | undefined;
+  parts?: MarkPart[] | undefined;
+  rigour?: Rigour | undefined;
+  challengeQuery?: string | undefined;
+  originalEvaluation?: string | undefined;
+}): string {
+  const parts = (input.parts?.length ? [...input.parts] : ALL_MARK_PARTS).sort().join(",");
+  const payload = [
+    input.mode,
+    input.subjectId,
+    input.rigour ?? "strict",
+    parts,
+    normalizeForCache(input.question),
+    normalizeForCache(input.userAnswer),
+    normalizeForCache(input.challengeQuery),
+    normalizeForCache(input.originalEvaluation),
+  ].join("\u0000");
+  return createHash("sha256").update(payload).digest("hex").slice(0, 32);
+}
+
+/** The fingerprint stored with a saved verdict, if it carries one. */
+const fingerprintOfStored = (response: string): string | null =>
+  MARK_FINGERPRINT_RE.exec(response)?.[1] ?? null;
+
+/** The verdict as the candidate should see it — without the fingerprint marker. */
+const stripFingerprint = (response: string): string =>
+  response.replace(MARK_FINGERPRINT_RE, "").trimEnd();
+
+/** Severity a stored marking output was produced under (its declaration line). */
+function severityOfMarking(response: string): Rigour | null {
+  const match = /\bSeverity:\s*(MODERATE|STRICT|HARD)\b/i.exec(response);
+  return match ? (match[1]!.toLowerCase() as Rigour) : null;
+}
+
+/** Which of the four output sections a stored marking response contains. */
+function partsOfMarking(response: string): Set<string> {
+  const found = new Set<string>();
+  if (/^#{1,4}\s*🔍/m.test(response) || /Item-by-Item Detailed Marking/i.test(response))
+    found.add("feedback");
+  if (/^#{1,4}\s*📊/m.test(response)) found.add("marks");
+  if (/^#{1,4}\s*✅/m.test(response)) found.add("suggested");
+  if (/^#{1,4}\s*🎯/m.test(response)) found.add("recommendations");
+  return found;
+}
+
+/** Structural minimum of the Supabase query builder the replay lookup uses
+ *  (the client here is created without Database types, so its rows are untyped). */
+type ReplayRows = { data: unknown; error?: unknown };
+type ReplayQuery = {
+  eq: (column: string, value: string) => ReplayQuery;
+  order: (column: string, options: { ascending: boolean }) => ReplayQuery;
+  limit: (count: number) => PromiseLike<ReplayRows>;
+};
+type ReplaySupabase = { from: (table: string) => { select: (columns: string) => ReplayQuery } };
+
+type MarkingRow = { user_answer: string | null; response: string; created_at: string };
+
+/**
+ * The stored verdict for an identical earlier submission, or null. A replay
+ * requires ALL of: same subject, same question, same answer, same severity,
+ * same requested sections, and no new documents/lessons recorded since it.
+ *
+ * Matching is primarily by the exact fingerprint stored with the verdict. The
+ * older heading-sniffing path is kept only for verdicts saved before
+ * fingerprints existed — it is approximate, and an unchanged submission whose
+ * stored output merely formatted its headings differently used to slip past it
+ * and get re-marked live (producing different marks for identical input).
+ */
+async function findMarkingReplay(
+  supabase: ReplaySupabase,
+  data: {
+    subjectId: string;
+    mode: "mark" | "challenge";
+    question: string;
+    userAnswer?: string | undefined;
+    parts?: MarkPart[] | undefined;
+    rigour?: Rigour | undefined;
+    challengeQuery?: string | undefined;
+    originalEvaluation?: string | undefined;
+  },
+): Promise<{ response: string; createdAt: string } | null> {
+  const rigour = data.rigour ?? "strict";
+  const parts = (data.parts?.length ? [...data.parts] : ALL_MARK_PARTS).sort();
+  const wanted = markFingerprint(data);
+  const rowsResult = await supabase
+    .from("qa_entries")
+    .select("user_answer, response, created_at")
+    .eq("subject_id", data.subjectId)
+    .eq("mode", data.mode)
+    .eq("question", data.question)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  const rows = (rowsResult.data ?? []) as MarkingRow[];
+  if (rows.length === 0) return null;
+
+  const answer = normalizeForCache(data.userAnswer ?? "");
+  // Exact match first: identical inputs, byte-for-byte identical verdict.
+  const match =
+    rows.find((row) => fingerprintOfStored(row.response) === wanted) ??
+    // Legacy verdicts (no fingerprint stored) fall back to structural matching.
+    rows.find((row) => {
+      if (fingerprintOfStored(row.response) !== null) return false;
+      if (data.mode !== "mark") return false;
+      if (normalizeForCache(row.user_answer) !== answer) return false;
+      if (severityOfMarking(row.response) !== rigour) return false;
+      const have = partsOfMarking(row.response);
+      return parts.length > 0 && parts.every((p) => have.has(p)) && have.size === parts.length;
+    });
+  if (!match) return null;
+
+  // The notebook moved on after that verdict — new source documents or flagged
+  // lessons change what the marker must apply, so re-mark live instead.
+  const [docResult, noteResult] = await Promise.all([
+    supabase
+      .from("documents")
+      .select("created_at")
+      .eq("subject_id", data.subjectId)
+      .order("created_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("learning_notes")
+      .select("created_at")
+      .eq("subject_id", data.subjectId)
+      .order("created_at", { ascending: false })
+      .limit(1),
+  ]);
+  const newestDocAt = ((docResult.data ?? []) as { created_at?: string }[])[0]?.created_at ?? "";
+  const newestNoteAt = ((noteResult.data ?? []) as { created_at?: string }[])[0]?.created_at ?? "";
+  if (newestDocAt > match.created_at || newestNoteAt > match.created_at) return null;
+
+  return { response: stripFingerprint(match.response), createdAt: match.created_at };
+}
+
 export const Route = createFileRoute("/api/study")({
   server: {
     handlers: {
@@ -147,6 +325,53 @@ export const Route = createFileRoute("/api/study")({
         if (!parsed.success) return new Response("Bad request", { status: 400 });
         const data = parsed.data;
 
+        // Deterministic marking: the identical question + answer, re-submitted at
+        // the same severity, replays its previous verdict verbatim — same marks,
+        // guaranteed — instead of re-rolling a live model that may sample (or be
+        // served by a different fallback model) differently. Any change to the
+        // severity, the answer, the requested sections, or the notebook's
+        // documents/lessons falls through to a fresh live marking below.
+        if (data.mode === "mark" || data.mode === "challenge") {
+          try {
+            const cached = await findMarkingReplay(supabase as unknown as ReplaySupabase, {
+              subjectId: data.subjectId,
+              mode: data.mode,
+              question: data.question,
+              userAnswer: data.userAnswer,
+              parts: data.parts as MarkPart[] | undefined,
+              rigour: data.rigour as Rigour | undefined,
+              challengeQuery: data.challengeQuery,
+              originalEvaluation: data.originalEvaluation,
+            });
+            if (cached) {
+              console.error(
+                `[study] mark replay — identical submission at the same severity, reusing verdict from ${cached.createdAt}`,
+              );
+              const encoder = new TextEncoder();
+              const body = new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(encoder.encode(cached.response));
+                  controller.close();
+                },
+              });
+              return new Response(body, {
+                headers: {
+                  "Content-Type": "text/plain; charset=utf-8",
+                  "Cache-Control": "no-cache, no-transform",
+                  "X-Accel-Buffering": "no",
+                  "X-Study-Model": "replay (identical submission → identical marks; no model call)",
+                },
+              });
+            }
+          } catch (err) {
+            // The replay path must never break live marking — a lookup hiccup
+            // simply means this request is marked fresh.
+            console.error(
+              `[study] mark replay lookup failed, marking live: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+
         // Insights never reads source documents — skipping the (large) extracted_text
         // fetch is the single biggest latency win for the diagnostic.
         const [{ data: docs }, { data: notes }] = await Promise.all([
@@ -166,6 +391,14 @@ export const Route = createFileRoute("/api/study")({
         const lessons = buildLessonsBlock(notes ?? []);
 
         let system: string;
+        // Detect a full-paper submission before any prompt is built (cheap; used
+        // by both retrieval and the user-content manifest below).
+        const questionCount = data.mode === "mark" ? countSubmissionQuestions(data.question) : 0;
+        // Hand the marker the manifest explicitly so it cannot mark Q.1 and stop.
+        const manifestHint =
+          questionCount >= 2
+            ? `\n\nSUBMISSION MANIFEST (detected automatically): this submission contains ${questionCount} distinct numbered questions. Per MULTI-QUESTION SUBMISSIONS you MUST mark EVERY one of them separately — each question gets its own source sweep, mark plan, item feedback, marks rows and subtotal, followed by the GRAND TOTAL row. Marking only question 1 is a failed evaluation.`
+            : "";
         if (data.mode === "insights") {
           const { data: attempts } = await supabase
             .from("qa_entries")
@@ -197,7 +430,16 @@ export const Route = createFileRoute("/api/study")({
               : data.mode === "exam"
                 ? 300_000
                 : 350_000;
-          const sources = buildRelevantSourceBlock(docs ?? [], retrievalQuery, budget);
+          // A full past paper pasted in one go (several numbered questions, each
+          // with an answer) needs EVEN coverage of every source: keyword
+          // retrieval ranks question 1's passages highest and starves the later
+          // questions' official answers and marking guides — which is exactly
+          // why only Q.1 used to get marked. Even coverage gives every
+          // question's scenario, suggested answer and marking guide a seat.
+          const sources =
+            data.mode === "mark" && questionCount >= 2
+              ? buildCoverageBlock(docs ?? [], budget)
+              : buildRelevantSourceBlock(docs ?? [], retrievalQuery, budget);
           system =
             data.mode === "mark"
               ? markSystemPrompt(
@@ -221,7 +463,7 @@ export const Route = createFileRoute("/api/study")({
           data.mode === "insights"
             ? "Produce the performance diagnostic now."
             : data.mode === "mark"
-              ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}`
+              ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}${manifestHint}`
               : data.mode === "exam"
                 ? `EXAM BRIEF FROM THE CANDIDATE:\n${data.question}${
                     (data.priorQuestions ?? []).filter((q) => q.trim().length > 0).length
@@ -279,7 +521,7 @@ export const Route = createFileRoute("/api/study")({
         // keep walking every model, and on timeout retry once with thinking off
         // (thinking is what makes stream headers slow on large mark prompts).
         if (!upstream) {
-          const googleKey = readKey("GEMINI_API_KEY", "GOOGLE_API_KEY");
+          const googleKey = readKey("GOOGLE_API_KEY", "GEMINI_API_KEY");
           if (googleKey) {
             console.error(
               `[study] Gemini key present (${googleKey.slice(0, 6)}…${googleKey.slice(-4)}, len=${googleKey.length}) — trying direct Google API first`,
@@ -437,87 +679,63 @@ export const Route = createFileRoute("/api/study")({
           }
         }
 
-        // 2) Shared Lovable gateway — only when a LOVABLE_API_KEY is present and
-        // the Gemini key failed (or was missing). Credit exhaustion (402) /
-        // policy block (403) is workspace-wide, not per-model: once seen, every
-        // further gateway model returns the same. Skip the whole gateway for a
-        // while and go straight to the project's own keys.
-        const gatewaySkipped =
-          !apiKey || (gatewayFailure !== null && gatewayFailure.until > Date.now());
-        if (!apiKey) {
-          gatewayError = "Shared gateway: LOVABLE_API_KEY not set";
-        } else if (gatewayFailure !== null && gatewayFailure.until > Date.now()) {
-          gatewayStatus = gatewayFailure.status;
-          gatewayError =
-            gatewayFailure.status === 402
-              ? "Shared gateway: credits exhausted (402) — skipped (cached)"
-              : `Shared gateway: previously failed (${gatewayFailure.status}) — skipped`;
-        }
-        for (const model of gatewaySkipped ? [] : chain) {
-          const remaining = deadline - Date.now();
-          if (remaining <= 0) break;
-
-          // openAiRequestParams adds the model's reasoning tier (and the old
-          // sampling, for the non-Gemini-3 models) — the thinking budget that
-          // makes a marking run deeper, not just longer.
-          const post = (withReasoning: boolean) =>
-            fetchWithTimeout(
-              GATEWAY,
-              {
-                method: "POST",
-                headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  model,
-                  stream: true,
-                  ...(withReasoning
-                    ? openAiRequestParams(model, data.mode)
-                    : openAiSamplingParams(model)),
-                  messages: [
-                    { role: "system", content: system },
-                    ...priorMessages,
-                    { role: "user", content: userContent },
-                  ],
-                }),
-              },
-              Math.min(REQUEST_TIMEOUT_MS, remaining),
-            );
-
-          let res: Response;
-          try {
-            res = await post(true);
-            // A gateway that does not know `reasoning_effort` answers 400/422.
-            // Retry once without it instead of losing the model over a knob.
-            if (res.status === 400 || res.status === 422) {
-              await res.body?.cancel();
-              res = await post(false);
+        // 4) Project's Grok (xAI) key — final personal-key fallback.
+        if (!upstream) {
+          const grokKey = readKey("GROK_API_KEY", "XAI_API_KEY");
+          if (grokKey) {
+            for (const model of GROK_MODEL_CHAIN) {
+              const remaining = deadline - Date.now();
+              if (remaining <= 0) break;
+              const post = (withReasoning: boolean) =>
+                fetchWithTimeout(
+                  "https://api.x.ai/v1/chat/completions",
+                  {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Bearer ${grokKey}`,
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      model,
+                      stream: true,
+                      // Marking must be reproducible: the same script marked
+                      // again has to score the same, so mark/challenge sample
+                      // greedily instead of at the conversational default.
+                      temperature: data.mode === "mark" || data.mode === "challenge" ? 0 : 0.3,
+                      ...(data.mode === "mark" || data.mode === "challenge" ? { top_p: 0.1 } : {}),
+                      ...(withReasoning ? openAiRequestParams(model, data.mode) : {}),
+                      messages: [
+                        { role: "system", content: system },
+                        ...priorMessages,
+                        { role: "user", content: userContent },
+                      ],
+                    }),
+                  },
+                  Math.min(REQUEST_TIMEOUT_MS, remaining),
+                );
+              let res: Response;
+              try {
+                res = await post(true);
+                if (res.status === 400 || res.status === 422) {
+                  await res.body?.cancel();
+                  res = await post(false);
+                }
+              } catch (err) {
+                const why = err instanceof Error ? err.message : "timed out or unreachable";
+                grokError = `Grok fallback (${model}): ${why}`;
+                continue;
+              }
+              if (res.ok && res.body) {
+                upstream = res;
+                source = "grok";
+                servedModel = model;
+                break;
+              }
+              grokError = await describeHttpFailure(`Grok fallback (${model})`, res);
+              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
+              if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
             }
-          } catch {
-            // Timed out or network failure — the whole gateway host is
-            // unreachable, not just this model. Stop and fall through.
-            gatewayStatus = 504;
-            gatewayError = "Shared gateway: timed out or unreachable";
-            break;
           }
-          gatewayStatus = res.status;
-          if (res.ok && res.body) {
-            upstream = res;
-            servedModel = model;
-            break;
-          }
-          gatewayError = await describeHttpFailure("Shared gateway", res);
-          // Out of credits / blocked by policy — terminal for the whole
-          // gateway. Stop trying gateway models here and for the next 10
-          // minutes; the project keys below take over.
-          if (res.status === 402 || res.status === 403) {
-            gatewayFailure = { status: res.status, until: Date.now() + 10 * 60_000 };
-            break;
-          }
-          // 429 is a workspace-wide rate limit: every other model on the same
-          // gateway returns the same, so stop instead of burning seconds.
-          if (res.status === 429) break;
-          // 404 = unknown/retired model id — the next model may still work.
-          if (res.status === 404) continue;
-          break;
         }
 
         // 3) Project's Groq key — after Gemini and the gateway.
@@ -526,6 +744,20 @@ export const Route = createFileRoute("/api/study")({
         if (!upstream) {
           const groqKey = readKey("GROQ_API_KEY");
           if (groqKey) {
+            // Groq's on-demand tier caps a single request at ~8k tokens per
+            // minute, so the full notebook context (hundreds of thousands of
+            // characters) always came back 413 and the whole request ended as
+            // a 502. Send a trimmed prompt instead — head + tail of the source
+            // block keeps the instructions and the most relevant extract.
+            const groqUserContent = clampForGroq(userContent, 6_000);
+            const groqSystem = clampForGroq(
+              system,
+              Math.max(4_000, GROQ_MAX_PROMPT_CHARS - groqUserContent.length),
+            );
+            const groqMessages = [
+              { role: "system", content: groqSystem },
+              { role: "user", content: groqUserContent },
+            ];
             for (const model of GROQ_MODEL_CHAIN) {
               const remaining = deadline - Date.now();
               if (remaining <= 0) break;
@@ -545,11 +777,7 @@ export const Route = createFileRoute("/api/study")({
                       // gpt-oss models accept reasoning_effort; llama (retired)
                       // does not. See groqRequestParams.
                       ...groqRequestParams(model, data.mode),
-                      messages: [
-                        { role: "system", content: system },
-                        ...priorMessages,
-                        { role: "user", content: userContent },
-                      ],
+                      messages: groqMessages,
                     }),
                   },
                   Math.min(REQUEST_TIMEOUT_MS, remaining),
@@ -586,11 +814,7 @@ export const Route = createFileRoute("/api/study")({
                         stream: true,
                         temperature: 0,
                         top_p: 0.1,
-                        messages: [
-                          { role: "system", content: system },
-                          ...priorMessages,
-                          { role: "user", content: userContent },
-                        ],
+                        messages: groqMessages,
                       }),
                     },
                     Math.min(REQUEST_TIMEOUT_MS, retryRemaining),
@@ -607,64 +831,106 @@ export const Route = createFileRoute("/api/study")({
                   groqError = `Groq fallback (${model}): ${why}`;
                 }
               }
-              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
-              if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
+              // 413 = still over this model's per-minute token cap; the smaller
+              // model in the chain may accept it, so keep walking.
+              if (
+                res.status !== 429 &&
+                res.status !== 503 &&
+                res.status !== 404 &&
+                res.status !== 413
+              )
+                break;
+              if (res.status !== 404 && res.status !== 413)
+                await new Promise((r) => setTimeout(r, 800));
             }
           }
         }
 
-        // 4) Project's Grok (xAI) key — final personal-key fallback.
         if (!upstream) {
-          const grokKey = readKey("GROK_API_KEY", "XAI_API_KEY");
-          if (grokKey) {
-            for (const model of GROK_MODEL_CHAIN) {
-              const remaining = deadline - Date.now();
-              if (remaining <= 0) break;
-              const post = (withReasoning: boolean) =>
-                fetchWithTimeout(
-                  "https://api.x.ai/v1/chat/completions",
-                  {
-                    method: "POST",
-                    headers: {
-                      Authorization: `Bearer ${grokKey}`,
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      model,
-                      stream: true,
-                      temperature: 0.3,
-                      ...(withReasoning ? openAiRequestParams(model, data.mode) : {}),
-                      messages: [
-                        { role: "system", content: system },
-                        ...priorMessages,
-                        { role: "user", content: userContent },
-                      ],
-                    }),
+          // 2) Shared Lovable gateway — only when a LOVABLE_API_KEY is present and
+          // the Gemini key failed (or was missing). Credit exhaustion (402) /
+          // policy block (403) is workspace-wide, not per-model: once seen, every
+          // further gateway model returns the same. Skip the whole gateway for a
+          // while and go straight to the project's own keys.
+          const gatewaySkipped =
+            !apiKey || (gatewayFailure !== null && gatewayFailure.until > Date.now());
+          if (!apiKey) {
+            gatewayError = "Shared gateway: LOVABLE_API_KEY not set";
+          } else if (gatewayFailure !== null && gatewayFailure.until > Date.now()) {
+            gatewayStatus = gatewayFailure.status;
+            gatewayError =
+              gatewayFailure.status === 402
+                ? "Shared gateway: credits exhausted (402) — skipped (cached)"
+                : `Shared gateway: previously failed (${gatewayFailure.status}) — skipped`;
+          }
+          for (const model of gatewaySkipped ? [] : chain) {
+            const remaining = deadline - Date.now();
+            if (remaining <= 0) break;
+
+            // openAiRequestParams adds the model's reasoning tier (and the old
+            // sampling, for the non-Gemini-3 models) — the thinking budget that
+            // makes a marking run deeper, not just longer.
+            const post = (withReasoning: boolean) =>
+              fetchWithTimeout(
+                GATEWAY,
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${apiKey}`,
+                    "Content-Type": "application/json",
                   },
-                  Math.min(REQUEST_TIMEOUT_MS, remaining),
-                );
-              let res: Response;
-              try {
-                res = await post(true);
-                if (res.status === 400 || res.status === 422) {
-                  await res.body?.cancel();
-                  res = await post(false);
-                }
-              } catch (err) {
-                const why = err instanceof Error ? err.message : "timed out or unreachable";
-                grokError = `Grok fallback (${model}): ${why}`;
-                continue;
+                  body: JSON.stringify({
+                    model,
+                    stream: true,
+                    ...(withReasoning
+                      ? openAiRequestParams(model, data.mode)
+                      : openAiSamplingParams(model)),
+                    messages: [
+                      { role: "system", content: system },
+                      ...priorMessages,
+                      { role: "user", content: userContent },
+                    ],
+                  }),
+                },
+                Math.min(REQUEST_TIMEOUT_MS, remaining),
+              );
+
+            let res: Response;
+            try {
+              res = await post(true);
+              // A gateway that does not know `reasoning_effort` answers 400/422.
+              // Retry once without it instead of losing the model over a knob.
+              if (res.status === 400 || res.status === 422) {
+                await res.body?.cancel();
+                res = await post(false);
               }
-              if (res.ok && res.body) {
-                upstream = res;
-                source = "grok";
-                servedModel = model;
-                break;
-              }
-              grokError = await describeHttpFailure(`Grok fallback (${model})`, res);
-              if (res.status !== 429 && res.status !== 503 && res.status !== 404) break;
-              if (res.status !== 404) await new Promise((r) => setTimeout(r, 800));
+            } catch {
+              // Timed out or network failure — the whole gateway host is
+              // unreachable, not just this model. Stop and fall through.
+              gatewayStatus = 504;
+              gatewayError = "Shared gateway: timed out or unreachable";
+              break;
             }
+            gatewayStatus = res.status;
+            if (res.ok && res.body) {
+              upstream = res;
+              servedModel = model;
+              break;
+            }
+            gatewayError = await describeHttpFailure("Shared gateway", res);
+            // Out of credits / blocked by policy — terminal for the whole
+            // gateway. Stop trying gateway models here and for the next 10
+            // minutes; the project keys below take over.
+            if (res.status === 402 || res.status === 403) {
+              gatewayFailure = { status: res.status, until: Date.now() + 10 * 60_000 };
+              break;
+            }
+            // 429 is a workspace-wide rate limit: every other model on the same
+            // gateway returns the same, so stop instead of burning seconds.
+            if (res.status === 429) break;
+            // 404 = unknown/retired model id — the next model may still work.
+            if (res.status === 404) continue;
+            break;
           }
         }
 
@@ -673,7 +939,7 @@ export const Route = createFileRoute("/api/study")({
           // code (402/429 mirror the gateway's), but the message reports the
           // actual failures of BOTH the gateway and the configured fallbacks,
           // so "GEMINI_API_KEY is set but still failing" is finally visible.
-          const hasGemini = !!readKey("GEMINI_API_KEY", "GOOGLE_API_KEY");
+          const hasGemini = !!readKey("GOOGLE_API_KEY", "GEMINI_API_KEY");
           const hasGroq = !!readKey("GROQ_API_KEY");
           const hasGrok = !!readKey("GROK_API_KEY", "XAI_API_KEY");
           const reasons = [
@@ -748,54 +1014,72 @@ export const Route = createFileRoute("/api/study")({
                 }
                 full += decoder.decode();
               } else {
-              for (;;) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() ?? "";
-                for (const line of lines) {
-                  const trimmed = line.trim();
-                  if (!trimmed.startsWith("data:")) continue;
-                  const payload = trimmed.slice(5).trim();
-                  if (payload === "[DONE]") continue;
-                  try {
-                    const json = JSON.parse(payload) as {
-                      choices?: { delta?: { content?: string } }[];
-                      candidates?: {
-                        content?: { parts?: { text?: string; thought?: boolean }[] };
-                      }[];
-                    };
-                    const delta =
-                      source === "google"
-                        ? (json.candidates?.[0]?.content?.parts ?? [])
-                            // Reasoning summaries arrive as parts flagged
-                            // `thought: true` — scaffolding, not the answer.
-                            .filter((p) => !p.thought)
-                            .map((p) => p.text ?? "")
-                            .join("")
-                        : json.choices?.[0]?.delta?.content;
-                    if (delta) {
-                      full += delta;
-                      controller.enqueue(encoder.encode(delta));
+                for (;;) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  buffer += decoder.decode(value, { stream: true });
+                  const lines = buffer.split("\n");
+                  buffer = lines.pop() ?? "";
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith("data:")) continue;
+                    const payload = trimmed.slice(5).trim();
+                    if (payload === "[DONE]") continue;
+                    try {
+                      const json = JSON.parse(payload) as {
+                        choices?: { delta?: { content?: string } }[];
+                        candidates?: {
+                          content?: { parts?: { text?: string; thought?: boolean }[] };
+                        }[];
+                      };
+                      const delta =
+                        source === "google"
+                          ? (json.candidates?.[0]?.content?.parts ?? [])
+                              // Reasoning summaries arrive as parts flagged
+                              // `thought: true` — scaffolding, not the answer.
+                              .filter((p) => !p.thought)
+                              .map((p) => p.text ?? "")
+                              .join("")
+                          : json.choices?.[0]?.delta?.content;
+                      if (delta) {
+                        full += delta;
+                        controller.enqueue(encoder.encode(delta));
+                      }
+                    } catch {
+                      /* ignore partial json */
                     }
-                  } catch {
-                    /* ignore partial json */
                   }
                 }
-              }
               } // end SSE branch
             } finally {
               // Save BEFORE closing the stream: once the response closes the
               // worker can be torn down and a pending insert would be dropped.
               if (full && data.mode !== "insights") {
+                // Marking verdicts carry their input fingerprint so an identical
+                // resubmission replays this exact verdict instead of being
+                // re-marked live (which would sample different marks). The
+                // marker is an HTML comment: invisible in the rendered output,
+                // and stripped again on replay.
+                const stamped =
+                  data.mode === "mark" || data.mode === "challenge"
+                    ? `${full}\n<!-- mark-fingerprint:${markFingerprint({
+                        mode: data.mode,
+                        subjectId: data.subjectId,
+                        question: data.question,
+                        userAnswer: data.userAnswer,
+                        parts: data.parts as MarkPart[] | undefined,
+                        rigour: data.rigour as Rigour | undefined,
+                        challengeQuery: data.challengeQuery,
+                        originalEvaluation: data.originalEvaluation,
+                      })} -->`
+                    : full;
                 const { error } = await supabase.from("qa_entries").insert({
                   user_id: userId,
                   subject_id: data.subjectId,
                   mode: data.mode,
                   question: data.question,
                   user_answer: data.userAnswer ?? null,
-                  response: full,
+                  response: stamped,
                 });
                 if (error) console.error("qa_entries insert failed", error.message);
               }

@@ -45,12 +45,12 @@ function withoutEnvOverride<T>(fn: () => T): T {
   }
 }
 
-test("per-mode effort: marking tasks think deeper than chat", () => {
+test("per-mode effort: marking thinks deepest of all, chat stays light", () => {
   withoutEnvOverride(() => {
     assert.equal(effortFor("ask"), "medium");
-    assert.equal(effortFor("mark"), "high");
+    assert.equal(effortFor("mark"), "xhigh");
     assert.equal(effortFor("exam"), "high");
-    assert.equal(effortFor("challenge"), "high");
+    assert.equal(effortFor("challenge"), "xhigh");
     assert.equal(effortFor("insights"), "medium");
   });
 });
@@ -93,7 +93,7 @@ test("Gemini 3 gets thinkingLevel, Gemini 2.5 gets thinkingBudget — never both
       if (isGemini3Family(model)) {
         assert.deepEqual(cfg, { thinkingLevel: "high" });
       } else {
-        assert.deepEqual(cfg, { thinkingBudget: 12_288 });
+        assert.deepEqual(cfg, { thinkingBudget: 24_576 });
       }
     }
   });
@@ -122,7 +122,7 @@ test("Gemini 3 generationConfig drops the sampling overrides Google warns about"
     assert.deepEqual(v25, {
       temperature: 0,
       topP: 0.1,
-      thinkingConfig: { thinkingBudget: 12_288 },
+      thinkingConfig: { thinkingBudget: 24_576 },
     });
   });
 });
@@ -217,6 +217,6 @@ test("Groq: llama gets no reasoning tier, gpt-oss / qwen do", () => {
 test("capped-output call sites reserve room for thinking tokens", () => {
   withoutEnvOverride(() => {
     assert.equal(thinkingHeadroom("ask"), 4_096);
-    assert.equal(thinkingHeadroom("mark"), 12_288);
+    assert.equal(thinkingHeadroom("mark"), 24_576);
   });
 });
