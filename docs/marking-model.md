@@ -40,8 +40,25 @@ gateway:
   and every criticism naming the exact gap.
 - **Evidence rule** — a point is credited only when the marker can quote the
   candidate's exact words that earn it; otherwise it scores zero.
+- **Claim-by-claim decomposition (no holistic scoring)** — the answer is split
+  into individual claims, each tagged *correct-and-relevant*, *correct-but-
+  irrelevant*, *partially correct*, *vague hedging* or *wrong*. Only the first
+  tag can carry full credit; hedging that commits to nothing checkable scores
+  zero even though it is not false.
+- **Gap audit** — the marker explicitly lists every mark-plan element the
+  candidate never wrote, so marks are lost for what is missing and not only
+  earned for what is present (the classic inflation route).
+- **Reasoning-supports-conclusion check** — a right answer reached by flawed,
+  unstated or missing logic scores zero in method-based work.
+- **Ambiguity resolves against the candidate** — a statement readable either as
+  correct or as a common misconception is recorded as insufficient, not given
+  the charitable reading.
+- **No number before the analysis** — forming a total first and justifying it
+  backwards is forbidden; the total must reconcile as *marks available − named
+  deductions*, and a coverage cross-check caps it at the proportion of the mark
+  plan actually addressed with applied, quotable content.
 - **Calibration anchors + worked example** — a broadly-correct-but-generic
-  answer must land at 40–60%, and the prompt contains a worked example of a
+  answer must land at 35–50%, and the prompt contains a worked example of a
   fluent, generic answer correctly marked near zero (the exact failure pattern
   that previously produced inflated marks). Severity positions the total within
   a band: moderate accepts the middle, strict aims for the lower half, hard for
@@ -84,7 +101,7 @@ places:
 ## Deterministic marking (same input → same marks)
 
 Re-submitting the identical question + answer at the same severity replays the
-previous verdict verbatim — identical marks, guaranteed — instead of re-rolling
+previous verdict verbatim — **the same marks and the same words** — identical marks, guaranteed — instead of re-rolling
 a live model that samples differently (and may sit behind a fallback chain of
 different models). The replay applies only when the subject, question, answer,
 severity AND requested sections all match, and is invalidated when the notebook
@@ -93,6 +110,27 @@ those legitimately change how the answer must be marked. Changing the severity
 (strict → hard, etc.) always re-marks live. Live marking itself is also more
 mechanical now: re-mark-consistency rules freeze point weights so the same
 words earn the same marks every time.
+
+Three layers guarantee it:
+
+1. **In-tab verdict cache** (`src/lib/marking-cache.ts`) — a repeat submission
+   with an identical fingerprint replays the verdict already on screen with no
+   model call at all. Cleared automatically on `documents-changed` and
+   `lessons-changed`.
+2. **Exact server-side replay** — each stored marking verdict carries an
+   invisible `<!-- mark-fingerprint:… -->` comment covering mode, notebook,
+   severity, requested sections, question, answer and (for challenges) the
+   query and the verdict being challenged. Replay matches on that hash instead
+   of sniffing the previous output's headings, which used to let an unchanged
+   submission fall through to a freshly sampled re-mark. The marker is stripped
+   before display, export and replay. Challenge mode is now replayed too.
+3. **Greedy sampling for marking** — mark/challenge requests send
+   `temperature: 0, top_p: 0.1` on every provider in the fallback chain (the
+   Grok path was still sending `0.3`), so even a genuine live re-mark has no
+   sampling variance to introduce.
+
+Changing the severity (strict → hard), the answer, the question, the requested
+sections, or the notebook's documents/lessons always re-marks live.
 
 ## Using all sources
 

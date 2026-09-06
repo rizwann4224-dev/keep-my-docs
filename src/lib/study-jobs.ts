@@ -1,5 +1,6 @@
 // Global store for AI runs. Streaming continues even when the user switches
 // tabs or notebooks; state is persisted so a reload keeps the conversation.
+import { getCachedVerdict, putCachedVerdict } from "@/lib/marking-cache";
 import { streamStudyQuery, type StudyRequest } from "@/lib/study-stream";
 
 export type Turn = {
@@ -85,9 +86,7 @@ export function anyRunning() {
 }
 
 function patch(key: string, id: string, updates: Partial<Turn>) {
-  const turns = (state[key] ?? []).map((turn) =>
-    turn.id === id ? { ...turn, ...updates } : turn,
-  );
+  const turns = (state[key] ?? []).map((turn) => (turn.id === id ? { ...turn, ...updates } : turn));
   commit({ ...state, [key]: turns });
 }
 
@@ -118,9 +117,20 @@ export function startRun(
     [key]: opts?.replace ? [turn] : [...(state[key] ?? []), turn],
   });
 
+  // Deterministic marking: an identical mark/challenge submission (same
+  // question, same answer, same severity, same sections, unchanged notebook)
+  // replays the verdict already produced in this tab instead of re-rolling the
+  // model, which would sample a different — and differently scored — answer.
+  const cached = getCachedVerdict(body);
+  if (cached) {
+    patch(key, id, { answer: cached.text, status: "done", model: cached.model });
+    return id;
+  }
+
   void streamStudyQuery(body, (full) => patch(key, id, { answer: full }))
     .then(({ text, model }) => {
       patch(key, id, { answer: text, status: "done", model });
+      putCachedVerdict(body, { text, model });
       // The server saves the turn to history once the stream ends — tell any
       // open History panel to refresh.
       if (typeof window !== "undefined")

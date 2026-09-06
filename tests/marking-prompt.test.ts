@@ -62,7 +62,39 @@ for (const rigour of ["moderate", "strict", "hard"] as const) {
 // Strictness ordering must stay: moderate > strict > hard expectations.
 const strict = markSystemPrompt(sources, "None recorded yet.", [...parts], "strict");
 check("strict: generic statements earn zero", strict.includes("GENERIC = ZERO"));
-check("strict: weak answers land at 40-60%, not 75%+", strict.includes("40-60%"));
+check("strict: weak answers land at 35-50%, not 60%+", strict.includes("35-50%"));
+check(
+  "strict: claim-by-claim decomposition required (no holistic scoring)",
+  strict.includes("CLAIM-BY-CLAIM DECOMPOSITION") && strict.includes("VAGUE-HEDGING"),
+);
+check("strict: gap audit for missing elements present", strict.includes("GAP AUDIT"));
+check(
+  "strict: reasoning must support the conclusion",
+  strict.includes("REASONING-SUPPORTS-CONCLUSION CHECK"),
+);
+check(
+  "strict: ambiguity resolves against the candidate",
+  strict.includes("AMBIGUITY RESOLVES AGAINST THE CANDIDATE"),
+);
+check(
+  "strict: no score may be formed before the analysis",
+  strict.includes("NO NUMBER BEFORE THE ANALYSIS"),
+);
+check(
+  "strict: coverage cross-check caps inflated totals",
+  strict.includes("COVERAGE CROSS-CHECK") && strict.includes("HARD CEILING FROM COVERAGE"),
+);
+check("strict: deduction ledger must reconcile", strict.includes("DEDUCTION LEDGER"));
+check(
+  "strict: no credit for confidence, length or fluency",
+  strict.includes("NO CREDIT FOR CONFIDENCE, LENGTH OR FLUENCY"),
+);
+check("strict: vague hedging earns zero", strict.includes("VAGUE HEDGING = ZERO"));
+check("strict: correct but irrelevant earns zero", strict.includes("CORRECT BUT IRRELEVANT = ZERO"));
+check(
+  "strict: the question's tested skill is identified first",
+  strict.includes("IDENTIFY WHAT THE QUESTION TESTS"),
+);
 check("strict: knowledge dump cap present", strict.includes("KNOWLEDGE DUMP CAP"));
 check(
   "strict: several missing elements make a point zero",

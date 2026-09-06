@@ -26,6 +26,8 @@ export function LessonCapture({ subjectId }: { subjectId: string }) {
       setContent("");
       setOpen(false);
       queryClient.invalidateQueries({ queryKey: ["lessons", subjectId] });
+      // A new lesson changes how answers must be marked — drop cached verdicts.
+      window.dispatchEvent(new CustomEvent("lessons-changed"));
     },
     onError: () => toast.error("Could not save this correction"),
   });
