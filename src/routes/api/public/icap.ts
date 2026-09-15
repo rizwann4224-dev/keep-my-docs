@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { geminiThinkingConfig, reasoningEffortParam, thinkingHeadroom } from "@/lib/reasoning";
 import { fetchWithTimeout } from "@/lib/ai-fetch";
-import { ensureServerEnv, readServerKey } from "@/lib/load-env";
+import { anonymousAiAllowed, ensureServerEnv, readServerKey } from "@/lib/load-env";
+import { quotaNotice, quotaNoticeBody } from "@/lib/provider-policy";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -10,10 +12,7 @@ const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const REQUEST_TIMEOUT_MS = 45_000;
 
 /** Same behaviour as the notebook: try the shared allowance first, then cheaper models. */
-const MODEL_CHAIN = [
-  "google/gemini-3.6-flash",
-  "google/gemini-3.5-flash-lite",
-];
+const MODEL_CHAIN = ["google/gemini-3.6-flash", "google/gemini-3.5-flash-lite"];
 
 /** Project's own Gemini key (direct Google API) — FIRST priority on every request. */
 const GOOGLE_MODEL_CHAIN = [
@@ -39,11 +38,36 @@ export const Route = createFileRoute("/api/public/icap")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        ensureServerEnv();
+
+        // ANONYMOUS AI ACCESS IS OFF BY DEFAULT (ENABLE_PUBLIC_ICAP=false).
+        // This endpoint spends the deployment's AI allowance, so an unauthenticated
+        // caller could drain it. Until a deployment opts in, only a signed-in
+        // notebook user (same Supabase session as /api/study) may call it.
+        if (!anonymousAiAllowed()) {
+          const authHeader = request.headers.get("authorization");
+          if (!authHeader) {
+            return new Response(
+              "Public AI access is disabled. Sign in to Study Desk to use this tool, or set ENABLE_PUBLIC_ICAP=true in the deployment to allow anonymous access.",
+              { status: 403, headers: { "X-Study-Access": "authenticated-only" } },
+            );
+          }
+          const url = process.env["SUPABASE_URL"];
+          const anon = process.env["SUPABASE_PUBLISHABLE_KEY"] ?? process.env["SUPABASE_ANON_KEY"];
+          if (!url || !anon) {
+            return new Response("Not configured", { status: 500 });
+          }
+          const supabase = createClient(url, anon, {
+            global: { headers: { Authorization: authHeader, apikey: anon } },
+            auth: { persistSession: false, autoRefreshToken: false },
+          });
+          const { data: userData } = await supabase.auth.getUser();
+          if (!userData.user?.id) return new Response("Unauthorized", { status: 401 });
+        }
+
         const parsed = Body.safeParse(await request.json().catch(() => null));
         if (!parsed.success) return new Response("Bad request", { status: 400 });
         const { system, user, tokens } = parsed.data;
-
-        ensureServerEnv();
         const apiKey = readServerKey("LOVABLE_API_KEY");
         const googleKey = readServerKey("GOOGLE_API_KEY", "GEMINI_API_KEY");
         let lastStatus = 0;
@@ -98,7 +122,6 @@ export const Route = createFileRoute("/api/public/icap")({
             await new Promise((r) => setTimeout(r, 800));
           }
         }
-
 
         // The Gemini key was already tried first above — this is only a safety net
         // for paths that never attempted it (i.e. no key existed at step 1).
@@ -258,13 +281,24 @@ export const Route = createFileRoute("/api/public/icap")({
           lastBody = "AI is not configured.";
         }
 
+        // Quota and rate limits are reported through the shared provider policy:
+        // the user is told the allowance ran out, that nothing was purchased to
+        // work around it, and what to configure. A failed run never returns text.
+        const notice = quotaNotice(lastStatus, {
+          personalKeys: {
+            gemini: !!readServerKey("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+            groq: !!readServerKey("GROQ_API_KEY"),
+            grok: !!readServerKey("GROK_API_KEY", "XAI_API_KEY"),
+          },
+        });
         const message =
-          lastStatus === 402
-            ? "AI credits are used up and the backup key is unavailable — set GEMINI_API_KEY or GROQ_API_KEY, or add credits in Lovable."
-            : lastStatus === 429
-              ? "The AI is busy right now — try again in a few seconds."
-              : `AI request failed (${lastStatus}). ${lastBody.slice(0, 200)}`;
-        return new Response(message, { status: lastStatus === 429 ? 429 : 502 });      },
+          lastStatus === 402 || lastStatus === 429 || lastStatus === 403
+            ? quotaNoticeBody(notice, [lastBody.slice(0, 200)].filter(Boolean))
+            : `AI request failed (${lastStatus}). ${lastBody.slice(0, 200)}`;
+        return new Response(message, {
+          status: lastStatus === 429 ? 429 : notice.status === 402 ? 402 : 502,
+        });
+      },
     },
   },
 });

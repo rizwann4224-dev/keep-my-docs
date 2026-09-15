@@ -33,9 +33,11 @@ export async function fetchWithTimeout(
     // Normalize AbortError into a plain Error with the timeout message so
     // provider chains can log "timed out after Nms" instead of a bare AbortError.
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(controller.signal.reason instanceof Error
-        ? controller.signal.reason.message
-        : `AI request timed out after ${timeoutMs}ms`);
+      throw new Error(
+        controller.signal.reason instanceof Error
+          ? controller.signal.reason.message
+          : `AI request timed out after ${timeoutMs}ms`,
+      );
     }
     throw err;
   } finally {

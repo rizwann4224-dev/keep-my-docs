@@ -1,4 +1,11 @@
 import { jsPDF } from "jspdf";
+import {
+  conciseTitle,
+  isListContinuation,
+  parseListLine,
+  proportionalColumnWidths,
+  shortenHeading,
+} from "@/lib/export-format";
 
 export type AskExport = {
   notebook: string;
@@ -257,34 +264,6 @@ function splitRow(line: string): string[] {
 
 const isDivider = (cells: string[]) => cells.every((c) => /^:?-{2,}:?$/.test(c));
 
-/** 1 -> i, 2 -> ii, 4 -> iv … used for the (i), (ii), (iii) list markers. */
-function roman(n: number) {
-  const steps: [number, string][] = [
-    [1000, "m"],
-    [900, "cm"],
-    [500, "d"],
-    [400, "cd"],
-    [100, "c"],
-    [90, "xc"],
-    [50, "l"],
-    [40, "xl"],
-    [10, "x"],
-    [9, "ix"],
-    [5, "v"],
-    [4, "iv"],
-    [1, "i"],
-  ];
-  let value = Math.max(1, Math.floor(n));
-  let out = "";
-  for (const [amount, glyph] of steps) {
-    while (value >= amount) {
-      out += glyph;
-      value -= amount;
-    }
-  }
-  return out;
-}
-
 /* -------------------------------------------------------------------------- */
 /*  Renderer                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -396,40 +375,126 @@ function createRenderer(doc: jsPDF, page: Page = { w: PAGE_W, h: PAGE_H, margin:
     y += after;
   };
 
-  /** Markdown table rendered as a bordered grid. */
+  /**
+   * Markdown table as a bordered grid.
+   *
+   * Two things the old version got wrong and this one fixes: columns are sized
+   * from their CONTENT (a "Marks" column no longer eats a third of the page and
+   * a "Justification" column is no longer squeezed until its text is clipped),
+   * and a row that cannot fit on the remaining page is split across the page
+   * break with its header repeated — text is never cut off.
+   */
   const table = (rows: string[][]) => {
     if (rows.length === 0) return;
-    const columns = Math.max(...rows.map((r) => r.length));
-    const colW = width / columns;
     const size = SIZE.table;
     const lh = size * 1.34;
+    const padX = 6;
+    const padY = 4;
+    face("normal", size);
 
-    rows.forEach((cells, rowIndex) => {
-      face(rowIndex === 0 ? "bold" : "normal", size);
-      const wrapped = Array.from(
-        { length: columns },
-        (_, i) => (doc.splitTextToSize(cells[i] ?? "", colW - 12) as string[]) ?? [],
-      );
-      const height = Math.max(...wrapped.map((w) => w.length)) * lh + 9;
-      ensure(height);
+    const cells = rows.map((row) =>
+      Array.from({ length: rows[0]?.length ?? 0 }, (_, i) => row[i] ?? ""),
+    );
+    const widths = proportionalColumnWidths(
+      cells,
+      width,
+      (text) => doc.getTextWidth(text.replace(/\s+/g, " ").trim()),
+      { min: 46, maxShare: 0.55, padding: padX },
+    );
+    const offsets: number[] = [];
+    let cursor = 0;
+    for (const w of widths) {
+      offsets.push(cursor);
+      cursor += w;
+    }
+    const totalTableWidth = Math.max(cursor, width);
 
-      const top = y - size * ASCENT - 4;
-      if (rowIndex === 0) {
-        doc.setFillColor(TABLE_HEAD[0], TABLE_HEAD[1], TABLE_HEAD[2]);
-        doc.rect(margin, top, width, height, "F");
+    const linesFor = (row: string[]) =>
+      row.map((cell, i) => {
+        const available = Math.max(24, (widths[i] ?? 60) - padX * 2);
+        const lines = (doc.splitTextToSize(cell, available) as string[]) ?? [];
+        return lines.length ? lines : [""];
+      });
+
+    const paintRow = (
+      row: string[],
+      style: FontStyle,
+      shade: Rgb | null,
+      fromLine = 0,
+      lineCount?: number,
+    ) => {
+      face(style, size);
+      const wrapped = linesFor(row);
+      const maxLines = Math.max(...wrapped.map((lines) => lines.length));
+      const startLine = fromLine;
+      const endLine = Math.min(maxLines, startLine + (lineCount ?? maxLines - startLine));
+      const height = Math.max(1, endLine - startLine) * lh + padY * 2;
+      const top = y - size * ASCENT - padY;
+
+      if (shade) {
+        doc.setFillColor(shade[0], shade[1], shade[2]);
+        doc.rect(margin, top, totalTableWidth, height, "F");
       }
       doc.setDrawColor(TABLE_EDGE[0], TABLE_EDGE[1], TABLE_EDGE[2]);
       doc.setLineWidth(0.5);
-      for (let i = 0; i < columns; i++) doc.rect(margin + i * colW, top, colW, height);
+      for (let i = 0; i < row.length; i += 1) {
+        doc.rect(margin + (offsets[i] ?? 0), top, widths[i] ?? 0, height);
+      }
       ink(INK);
       wrapped.forEach((lines, i) => {
-        lines.forEach((line, li) => {
-          doc.text(line, margin + i * colW + 6, top + size * ASCENT + 5 + li * lh);
+        lines.slice(startLine, endLine).forEach((line, li) => {
+          doc.text(line, margin + (offsets[i] ?? 0) + padX, top + padY + size * ASCENT + li * lh);
         });
       });
-      y = top + height + size * ASCENT + 4;
+      y = top + height + size * ASCENT * 0.4;
+      return { maxLines, drawn: endLine - startLine };
+    };
+
+    const header = cells[0] ?? [];
+    const hasHeader = cells.length > 1;
+
+    const spaceLeft = () => pageH - margin - y;
+    const linesThatFit = (heightPerLine: number) =>
+      Math.max(0, Math.floor((spaceLeft() - padY * 2 - 2) / heightPerLine));
+
+    const startNewPage = () => {
+      doc.addPage();
+      y = margin + size * ASCENT;
+      // A table that continues keeps its header visible on the new page.
+      if (hasHeader) {
+        paintRow(header, "bold", TABLE_HEAD);
+        y += 2;
+      }
+    };
+
+    cells.forEach((row, rowIndex) => {
+      const isHeader = hasHeader && rowIndex === 0;
+      const style: FontStyle = isHeader ? "bold" : "normal";
+      const wrapped = linesFor(row);
+      const maxLines = Math.max(...wrapped.map((lines) => lines.length));
+      const fullHeight = maxLines * lh + padY * 2;
+
+      // Whole row fits on a fresh page but not here: move it down first.
+      const roomForWholeRow = pageH - margin - margin;
+      if (spaceLeft() < fullHeight && fullHeight <= roomForWholeRow) {
+        startNewPage();
+      }
+
+      let from = 0;
+      while (from < maxLines) {
+        const available = linesThatFit(lh);
+        if (available <= 0) {
+          startNewPage();
+          continue;
+        }
+        const take = Math.min(available, maxLines - from);
+        const { drawn } = paintRow(row, style, isHeader ? TABLE_HEAD : null, from, take);
+        from += Math.max(1, drawn);
+        if (from < maxLines) startNewPage();
+      }
+      y += 2;
     });
-    y += 10;
+    y += 8;
   };
 
   return {
@@ -452,29 +517,54 @@ function createRenderer(doc: jsPDF, page: Page = { w: PAGE_W, h: PAGE_H, margin:
   };
 }
 
+/**
+ * Page numbers on every page: "Page 2 of 7" in the footer, plus a thin rule.
+ * Runs after the content is laid out, because the total is only known then.
+ */
+function addPageNumbers(doc: jsPDF, options: { label?: string; margin?: number } = {}) {
+  const margin = options.margin ?? MARGIN;
+  const pages = doc.getNumberOfPages();
+  const label = options.label ?? "";
+  for (let page = 1; page <= pages; page += 1) {
+    doc.setPage(page);
+    const baseline = PAGE_FOOTER_BASELINE(doc);
+    doc.setDrawColor(RULE[0], RULE[1], RULE[2]);
+    doc.setLineWidth(0.4);
+    doc.line(
+      margin,
+      baseline - SIZE.meta - 3,
+      doc.internal.pageSize.getWidth() - margin,
+      baseline - SIZE.meta - 3,
+    );
+    doc.setFont(FONT, "normal");
+    doc.setFontSize(SIZE.meta);
+    doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+    const text = `${label}${label ? "  ·  " : ""}Page ${page} of ${pages}`;
+    doc.text(text, doc.internal.pageSize.getWidth() - margin, baseline, { align: "right" });
+  }
+}
+
+/** Footer baseline that respects the page's bottom margin on either orientation. */
+function PAGE_FOOTER_BASELINE(doc: jsPDF): number {
+  return doc.internal.pageSize.getHeight() - MARGIN / 2;
+}
+
 type Renderer = ReturnType<typeof createRenderer>;
 
 /* -------------------------------------------------------------------------- */
 /*  Shared content rendering                                                  */
 /* -------------------------------------------------------------------------- */
 
-const BULLET = /^[-*+•·◦‣]\s+(.*)$/;
-const NUMBERED = /^(\d{1,3}[.)]|\([a-z]\)|[a-z][.)])\s+(.*)$/;
 const QUOTE = /^>+\s?(.*)$/;
 const HR = /^(-{3,}|\*{3,}|_{3,})$/;
 
-/** How deep a list line is nested, from its leading whitespace. */
-function listLevel(raw: string) {
-  const lead = /^[ \t]*/.exec(raw)?.[0] ?? "";
-  return Math.min(2, Math.floor(lead.replace(/\t/g, "  ").length / 2));
-}
-
-/** (i), (ii) at the top level, (a), (b) nested, 1. 2. one level deeper. */
-function listMarker(level: number, n: number) {
-  if (level <= 0) return `(${roman(n)})`;
-  if (level === 1) return `(${String.fromCharCode(97 + ((n - 1) % 26))})`;
-  return `${n}.`;
-}
+/**
+ * The marker a bullet with no printed label gets. Everything that DOES carry a
+ * label — 1. 2. 3. / A. B. C. / a. b. c. / i. ii. iii. / (a) (i) — is written out
+ * exactly as the source had it, because those labels are how a candidate matches
+ * an answer to the requirement it belongs to.
+ */
+const BULLET_MARK = "•";
 
 /** Small caps style section label, e.g. QUESTION / ANSWER. */
 function label(r: Renderer, text: string, gap = 4) {
@@ -489,13 +579,14 @@ function label(r: Renderer, text: string, gap = 4) {
 
 /**
  * Renders an answer/marking body: headings, paragraphs, tables and lists.
- * Bullet points come out as (i), (ii), (iii) with a hanging indent and clear
- * space between each point.
+ *
+ * Labels are preserved verbatim and nesting is expressed by indentation with a
+ * hanging indent, so a wrapped point lines up under its own text and the label
+ * stays on the line that owns it.
  */
 function renderMarkdown(body: string, r: Renderer) {
   const lines = body.replace(/\r/g, "").split("\n");
-  const counters = [0, 0, 0];
-  /** -1 while no list is open, otherwise the level of the previous item. */
+  /** Running text of a wrapped list item, flushed when the item ends. */
   let openLevel = -1;
 
   let i = 0;
@@ -531,10 +622,13 @@ function renderMarkdown(body: string, r: Renderer) {
     if (heading) {
       openLevel = -1;
       const depth = heading[1]?.length ?? 1;
+      const text = plain(heading[2] ?? "");
+      // A long heading is a sentence, not a heading: it is demoted to bold body
+      // text so an export never opens with a wrapped three-line banner.
       const size = depth <= 2 ? SIZE.heading : SIZE.subheading;
       r.y += 6;
       r.ensure(size * LEADING + 24);
-      r.write(plain(heading[2] ?? ""), { size, style: "bold", color: ACCENT, gap: 5 });
+      r.write(shortenHeading(text), { size, style: "bold", color: ACCENT, gap: 5 });
       i += 1;
       continue;
     }
@@ -554,35 +648,28 @@ function renderMarkdown(body: string, r: Renderer) {
       continue;
     }
 
-    const bullet = BULLET.exec(line);
-    if (bullet) {
-      const level = listLevel(raw);
-      // Descending into a nested list starts that level fresh; climbing back out
-      // keeps the parent's running number going.
-      if (level > openLevel) for (let l = openLevel + 1; l <= level; l++) counters[l] = 0;
-      if (level < openLevel) for (let l = level + 1; l < counters.length; l++) counters[l] = 0;
-      counters[level] = (counters[level] ?? 0) + 1;
-      openLevel = level;
-      r.item(listMarker(level, counters[level] ?? 1), plain(bullet[1] ?? ""), {
+    const parsed = parseListLine(raw);
+    if (parsed.isListItem) {
+      // Descending into a nested list re-starts that level; climbing out does not
+      // renumber anything, because the label comes from the text itself.
+      openLevel = parsed.level;
+      const marker =
+        parsed.kind === "dash" || parsed.kind === "bullet" ? BULLET_MARK : parsed.marker;
+      let text = plain(parsed.text);
+      i += 1;
+      // Fold wrapped continuation lines into the item so the hanging indent
+      // carries them, instead of emitting an unlabelled orphan paragraph.
+      while (i < lines.length && isListContinuation(lines[i] ?? "", true)) {
+        const next = (lines[i] ?? "").trim();
+        if (!next || next.startsWith("|")) break;
+        text += ` ${plain(next)}`;
+        i += 1;
+      }
+      r.item(marker, text, {
         size: SIZE.body,
-        indent: 12 + level * 16,
+        indent: 12 + parsed.level * 16,
         gap: ITEM_GAP,
       });
-      i += 1;
-      continue;
-    }
-
-    const numbered = NUMBERED.exec(line);
-    if (numbered) {
-      const level = listLevel(raw);
-      // Numbered points keep their own markers, so they close any open roman list.
-      openLevel = -1;
-      r.item(numbered[1] ?? "", plain(numbered[2] ?? ""), {
-        size: SIZE.body,
-        indent: 12 + level * 16,
-        gap: ITEM_GAP,
-      });
-      i += 1;
       continue;
     }
 
@@ -660,6 +747,8 @@ export function exportAskToPdf(data: AskExport) {
     if (index < data.turns.length - 1) r.rule();
   });
 
+  addPageNumbers(doc, { label: data.notebook });
+
   const fallback =
     data.notebook
       .replace(/[^\w-]+/g, "-")
@@ -670,8 +759,12 @@ export function exportAskToPdf(data: AskExport) {
 }
 
 /**
- * Performance overview export: landscape A4, one heading and one table.
- * Deliberately has no letterhead band, no header and no footer.
+ * Performance overview export: landscape A4.
+ *
+ * The topic table is the headline, but the evidence rows and the "what to do
+ * next" lines are the part a candidate acts on — so the whole report is exported,
+ * not just the grid. Nothing here is invented: every figure comes from the
+ * classification rows the caller was shown.
  */
 export function exportInsightsToPdf(markdown: string, fallbackName = "performance-overview") {
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
@@ -682,24 +775,17 @@ export function exportInsightsToPdf(markdown: string, fallbackName = "performanc
     size: 16,
     style: "bold",
     color: ACCENT,
-    gap: 16,
+    gap: 8,
+  });
+  r.write("Scores are awarded marks ÷ available marks over the marked attempts in this notebook.", {
+    size: SIZE.meta,
+    style: "italic",
+    color: MUTED,
+    gap: 14,
   });
 
-  const rows: string[][] = [];
-  for (const raw of markdown.replace(/\r/g, "").split("\n")) {
-    const line = raw.trim();
-    if (!line.startsWith("|")) continue;
-    const cells = splitRow(line);
-    if (!isDivider(cells)) rows.push(cells);
-  }
-
-  if (rows.length === 0) {
-    renderMarkdown(markdown, r);
-    doc.save(`${fallbackName}.pdf`);
-    return;
-  }
-
-  r.table(rows);
+  renderMarkdown(markdown, r);
+  addPageNumbers(doc, { label: "Performance Overview" });
   doc.save(`${fallbackName}.pdf`);
 }
 
@@ -715,7 +801,8 @@ export function exportHistoryToPdf(data: HistoryExport) {
 
   data.entries.forEach((entry, index) => {
     r.ensure(56);
-    r.write(`${index + 1}. ${plain(entry.title)}`, {
+    // Titles stay short: the full question follows as body text underneath.
+    r.write(`${index + 1}. ${plain(conciseTitle(entry.title))}`, {
       size: SIZE.heading,
       style: "bold",
       color: ACCENT,
@@ -737,6 +824,8 @@ export function exportHistoryToPdf(data: HistoryExport) {
 
     if (index < data.entries.length - 1) r.rule(8, 20);
   });
+
+  addPageNumbers(doc, { label: data.notebook });
 
   const fallback =
     data.notebook

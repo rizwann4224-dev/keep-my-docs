@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Bell, CheckCircle2, ClipboardCheck, FileText, LineChart, Sparkles } from "lucide-react";
 import * as jobs from "@/lib/study-jobs";
 import type { MarkPart, Rigour } from "@/lib/study-prompts";
+import { parseMarksFromReport } from "@/lib/performance-model";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { LessonCapture } from "@/components/study/LessonCapture";
@@ -97,25 +98,21 @@ export function MarkPanel({ subjectId, subjectName }: { subjectId: string; subje
     setParts((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
   }
 
-  // Extract marks from response (simple regex pattern)
-  function extractMarksFromResponse(response: string): { marks: number; maxMarks: number } | null {
-    // Look for patterns like "Marks awarded: 18/20" or "18 / 20"
-    const match = response.match(/Marks awarded:\s*(\d+)\s*\/\s*(\d+)|(\d+)\s*\/\s*(\d+)\s*marks/i);
-    if (match) {
-      const marks = parseInt(match[1] ?? match[3] ?? "");
-      const maxMarks = parseInt(match[2] ?? match[4] ?? "");
-      if (Number.isNaN(marks) || Number.isNaN(maxMarks)) return null;
-      return { marks, maxMarks };
-    }
-    return null;
-  }
+  /**
+   * Marks come from the report's own total line (or its Total / GRAND TOTAL row) —
+   * the same parser the performance charts use, so a number is never read one way
+   * here and another way there. `null` means the report never stated a total:
+   * nothing is assumed, and the challenge flow simply stays closed.
+   */
+  const marksFromReport = latest?.answer ? parseMarksFromReport(latest.answer) : null;
+  const extractedMarks =
+    marksFromReport && marksFromReport.awarded !== null && marksFromReport.available !== null
+      ? { marks: marksFromReport.awarded, maxMarks: marksFromReport.available }
+      : null;
 
   // Update markData when response arrives
-  if (latest?.status === "done" && latest.answer && hasMarks && !markData) {
-    const extracted = extractMarksFromResponse(latest.answer);
-    if (extracted) {
-      setMarkData(extracted);
-    }
+  if (latest?.status === "done" && latest.answer && hasMarks && !markData && extractedMarks) {
+    setMarkData(extractedMarks);
   }
 
   const canGenerate =
@@ -261,6 +258,12 @@ export function MarkPanel({ subjectId, subjectName }: { subjectId: string; subje
           <p className="whitespace-pre-line text-sm text-destructive">
             {latest.error ?? "Something went wrong"}
           </p>
+          {latest.answer ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              The text below is what arrived before the run stopped. It was not saved as a result
+              and no marks from it are counted — mark again to get a complete verdict.
+            </p>
+          ) : null}
         </div>
       )}
 

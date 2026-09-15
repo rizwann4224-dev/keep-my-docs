@@ -5,6 +5,9 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
   askSystemPrompt,
+  classificationJsonSchema,
+  performanceClassificationPrompt,
+  type ClassifiableAttempt,
   buildCoverageBlock,
   buildLessonsBlock,
   challengeSystemPrompt,
@@ -25,7 +28,27 @@ import {
   type ReasoningMode,
 } from "@/lib/reasoning";
 import { fetchWithTimeout } from "@/lib/ai-fetch";
-import { ensureServerEnv, readServerKey } from "@/lib/load-env";
+import {
+  ensureServerEnv,
+  readServerKey,
+  withPreferredModel,
+  preferredGeminiModel,
+} from "@/lib/load-env";
+import {
+  isClassificationComplete,
+  shouldPersistVerdict,
+  stripMarkers,
+  withMarker,
+} from "@/lib/stream-safety";
+import { quotaNotice, quotaNoticeBody, quotaResponseStatus } from "@/lib/provider-policy";
+import {
+  canonicalTopicName,
+  canonicalTopicsFrom,
+  parseClassificationReport,
+  parseMarksFromReport,
+  toRows,
+  type BreakdownRow,
+} from "@/lib/performance-model";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
@@ -46,13 +69,16 @@ const MODEL_CHAIN_MARK = ["google/gemini-3.1-pro-preview", ...MODEL_CHAIN];
  * Prefer widely-available Flash models first so a free AI Studio key always has
  * something to hit; Pro is tried after for mark/challenge quality.
  */
-const GOOGLE_MODEL_CHAIN = [
-  "gemini-3.6-flash",
-  "gemini-2.0-flash",
-  "gemini-3.5-flash-lite",
-  "gemini-flash-latest",
-  "gemini-3.1-pro-preview",
-];
+const GOOGLE_MODEL_CHAIN = withPreferredModel(
+  [
+    "gemini-3.6-flash",
+    "gemini-2.0-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-3.1-pro-preview",
+  ],
+  preferredGeminiModel(),
+);
 
 /** Extra Pro-first chain for mark/challenge when a Gemini key is set. */
 const GOOGLE_MODEL_CHAIN_MARK = [
@@ -117,7 +143,7 @@ async function describeHttpFailure(label: string, res: Response): Promise<string
 
 const Body = z.object({
   subjectId: z.string().uuid(),
-  mode: z.enum(["ask", "mark", "insights", "exam", "challenge"]),
+  mode: z.enum(["ask", "mark", "insights", "exam", "challenge", "classify"]),
   question: z.string().min(1),
   userAnswer: z.string().optional(),
   parts: z.array(z.enum(["feedback", "marks", "suggested", "recommendations"])).optional(),
@@ -297,6 +323,102 @@ async function findMarkingReplay(
   return { response: stripFingerprint(match.response), createdAt: match.created_at };
 }
 
+/** How an upstream response frames its body. */
+export type StreamSource = "gateway" | "google" | "google-plain" | "groq" | "grok";
+
+/** One SSE payload → the answer text it carries (reasoning parts are skipped). */
+export function deltaFromPayload(source: StreamSource, payload: string): string {
+  if (!payload || payload === "[DONE]") return "";
+  try {
+    const json = JSON.parse(payload) as {
+      choices?: { delta?: { content?: string } }[];
+      candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[];
+    };
+    if (source === "google") {
+      // Reasoning summaries arrive as parts flagged `thought: true` — scaffolding,
+      // not the answer.
+      return (json.candidates?.[0]?.content?.parts ?? [])
+        .filter((part) => !part.thought)
+        .map((part) => part.text ?? "")
+        .join("");
+    }
+    return json.choices?.[0]?.delta?.content ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export type CollectedStream = {
+  text: string;
+  /** True when the upstream body ended by error rather than by finishing. */
+  interrupted: boolean;
+  /** True once the provider sent its own `[DONE]` sentinel, when it sends one. */
+  sawDone: boolean;
+};
+
+/**
+ * Drain an upstream stream into a string.
+ *
+ * Used by modes whose result must be whole before it is trusted (classification):
+ * the caller gets `interrupted: true` for any stream that ended by throwing, so a
+ * half-received body can never be mistaken for a finished one.
+ */
+export async function collectUpstreamText(
+  upstream: Response,
+  source: StreamSource,
+): Promise<CollectedStream> {
+  const decoder = new TextDecoder();
+  let text = "";
+  let buffer = "";
+  let interrupted = false;
+  let sawDone = false;
+  const body = upstream.body;
+  if (!body) return { text: "", interrupted: true, sawDone: false };
+  const reader = body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      if (source === "google-plain") {
+        text += decoder.decode(value, { stream: true });
+        continue;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payload = trimmed.slice(5).trim();
+        if (payload === "[DONE]") {
+          sawDone = true;
+          continue;
+        }
+        text += deltaFromPayload(source, payload);
+      }
+    }
+    if (buffer.trim().startsWith("data:")) {
+      const payload = buffer.trim().slice(5).trim();
+      if (payload === "[DONE]") sawDone = true;
+      else text += deltaFromPayload(source, payload);
+    }
+    if (source === "google-plain") text += decoder.decode();
+  } catch (error) {
+    interrupted = true;
+    console.error(
+      `[study] upstream stream failed mid-body: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    // Release the reader; the collected prefix is discarded by the caller.
+    try {
+      await reader.cancel();
+    } catch {
+      /* ignore */
+    }
+  }
+  return { text, interrupted, sawDone };
+}
+
 export const Route = createFileRoute("/api/study")({
   server: {
     handlers: {
@@ -373,14 +495,17 @@ export const Route = createFileRoute("/api/study")({
         }
 
         // Insights never reads source documents — skipping the (large) extracted_text
-        // fetch is the single biggest latency win for the diagnostic.
+        // fetch is the single biggest latency win for the diagnostic. Classification
+        // needs the documents only for their syllabus/contents headings, so it fetches
+        // them (names always; text is truncated per document below).
+        const wantsDocuments = data.mode !== "insights";
         const [{ data: docs }, { data: notes }] = await Promise.all([
-          data.mode === "insights"
-            ? Promise.resolve({ data: [] as { name: string; extracted_text: string }[] })
-            : supabase
+          wantsDocuments
+            ? supabase
                 .from("documents")
                 .select("name, extracted_text")
-                .eq("subject_id", data.subjectId),
+                .eq("subject_id", data.subjectId)
+            : Promise.resolve({ data: [] as { name: string; extracted_text: string }[] }),
           supabase
             .from("learning_notes")
             .select("content")
@@ -399,7 +524,62 @@ export const Route = createFileRoute("/api/study")({
           questionCount >= 2
             ? `\n\nSUBMISSION MANIFEST (detected automatically): this submission contains ${questionCount} distinct numbered questions. Per MULTI-QUESTION SUBMISSIONS you MUST mark EVERY one of them separately — each question gets its own source sweep, mark plan, item feedback, marks rows and subtotal, followed by the GRAND TOTAL row. Marking only question 1 is a failed evaluation.`
             : "";
-        if (data.mode === "insights") {
+
+        /** Rows the classification report must cover, one per marked attempt. */
+        let classificationAttempts: ClassifiableAttempt[] = [];
+
+        if (data.mode === "classify") {
+          const { data: marked, error: markedError } = await supabase
+            .from("qa_entries")
+            .select("id, question, user_answer, response, created_at")
+            .eq("subject_id", data.subjectId)
+            .eq("mode", "mark")
+            .order("created_at", { ascending: true })
+            .limit(500);
+          if (markedError) {
+            return new Response(`Could not read your marked attempts: ${markedError.message}`, {
+              status: 500,
+            });
+          }
+          classificationAttempts = (marked ?? []).map((row, index) => {
+            const entry = row as {
+              id: string;
+              question: string;
+              user_answer: string | null;
+              response: string;
+              created_at: string;
+            };
+            const marks = parseMarksFromReport(stripMarkers(entry.response));
+            return {
+              index: index + 1,
+              question: entry.question,
+              answer: entry.user_answer ?? "",
+              response: stripMarkers(entry.response),
+              created_at: entry.created_at,
+              awarded: marks.awarded,
+              available: marks.available,
+            };
+          });
+          if (classificationAttempts.length === 0) {
+            return new Response(
+              "Nothing to classify yet — mark at least one answer in Answer & marking first.",
+              { status: 400 },
+            );
+          }
+          system = performanceClassificationPrompt(
+            classificationAttempts,
+            canonicalTopicsFrom(docs ?? []),
+            // Topic naming needs the syllabus/contents pages, not the whole library:
+            // each document contributes its opening (contents/headings) only.
+            buildCoverageBlock(
+              (docs ?? []).map((doc) => ({
+                name: doc.name,
+                extracted_text: (doc.extracted_text ?? "").slice(0, 24_000),
+              })),
+              120_000,
+            ),
+          );
+        } else if (data.mode === "insights") {
           const { data: attempts } = await supabase
             .from("qa_entries")
             .select("question, user_answer, response, created_at")
@@ -460,23 +640,27 @@ export const Route = createFileRoute("/api/study")({
         }
 
         const userContent =
-          data.mode === "insights"
-            ? "Produce the performance diagnostic now."
-            : data.mode === "mark"
-              ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}${manifestHint}`
-              : data.mode === "exam"
-                ? `EXAM BRIEF FROM THE CANDIDATE:\n${data.question}${
-                    (data.priorQuestions ?? []).filter((q) => q.trim().length > 0).length
-                      ? `\n\nQUESTION LEDGER — questions already set for this notebook (NEVER repeat any of these, and never reuse their scenario, entity, facts, figures or testing angle):\n${data
-                          .priorQuestions!.filter((q) => q.trim().length > 0)
-                          .slice(-50)
-                          .map((q, i) => `${i + 1}. ${q.trim()}`)
-                          .join("\n")}`
-                      : ""
-                  }`
-                : data.mode === "challenge"
-                  ? `ORIGINAL QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ORIGINAL ANSWER:\n${data.userAnswer?.trim() || "(none provided)"}\n\nORIGINAL MARKING OUTPUT GIVEN TO CANDIDATE:\n${data.originalEvaluation?.trim() || "(not provided)"}\n\nORIGINAL MARKS AWARDED: ${data.originalMarks ?? "unknown"} / ${data.maxMarks ?? "unknown"}\n\nCANDIDATE'S CHALLENGE / QUERY:\n${data.challengeQuery?.trim() || ""}`
-                  : data.question;
+          data.mode === "classify"
+            ? `Classify all ${classificationAttempts.length} marked attempt${
+                classificationAttempts.length === 1 ? "" : "s"
+              } now. Output ONLY the JSON array: one object per marked part, every attempt covered, marks exactly as the reports state them (null when they never were).`
+            : data.mode === "insights"
+              ? "Produce the performance diagnostic now."
+              : data.mode === "mark"
+                ? `QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ANSWER:\n${data.userAnswer?.trim() || "(no answer provided — produce only the requested sections)"}${manifestHint}`
+                : data.mode === "exam"
+                  ? `EXAM BRIEF FROM THE CANDIDATE:\n${data.question}${
+                      (data.priorQuestions ?? []).filter((q) => q.trim().length > 0).length
+                        ? `\n\nQUESTION LEDGER — questions already set for this notebook (NEVER repeat any of these, and never reuse their scenario, entity, facts, figures or testing angle):\n${data
+                            .priorQuestions!.filter((q) => q.trim().length > 0)
+                            .slice(-50)
+                            .map((q, i) => `${i + 1}. ${q.trim()}`)
+                            .join("\n")}`
+                        : ""
+                    }`
+                  : data.mode === "challenge"
+                    ? `ORIGINAL QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ORIGINAL ANSWER:\n${data.userAnswer?.trim() || "(none provided)"}\n\nORIGINAL MARKING OUTPUT GIVEN TO CANDIDATE:\n${data.originalEvaluation?.trim() || "(not provided)"}\n\nORIGINAL MARKS AWARDED: ${data.originalMarks ?? "unknown"} / ${data.maxMarks ?? "unknown"}\n\nCANDIDATE'S CHALLENGE / QUERY:\n${data.challengeQuery?.trim() || ""}`
+                    : data.question;
 
         // Ask mode keeps the thread's earlier turns so follow-ups ("and for the
         // next year?", "rephrase that") resolve against the previous question.
@@ -491,7 +675,7 @@ export const Route = createFileRoute("/api/study")({
         let upstream: Response | null = null;
         // "google-plain" = non-streaming generateContent wrapped as raw text bytes
         // (no SSE framing). Everything else is OpenAI-style SSE except "google".
-        let source: "gateway" | "google" | "google-plain" | "groq" | "grok" = "gateway";
+        let source: StreamSource = "gateway";
         let servedModel = "";
         // Why each provider failed, so the final error names the real cause
         // instead of a blanket "unavailable" — e.g. the gateway running out of
@@ -531,6 +715,19 @@ export const Route = createFileRoute("/api/study")({
                 ? GOOGLE_MODEL_CHAIN_MARK
                 : GOOGLE_MODEL_CHAIN;
 
+            // Classification answers must be parseable JSON. Gemini is asked for it
+            // natively (responseMimeType), and additionally constrained by the
+            // record schema — dropped on the first 400, because a model that
+            // rejects the schema must still be able to answer.
+            let useJsonSchema = data.mode === "classify";
+            const jsonConfig = (): Record<string, unknown> =>
+              data.mode === "classify"
+                ? {
+                    responseMimeType: "application/json",
+                    ...(useJsonSchema ? { responseSchema: classificationJsonSchema() } : {}),
+                  }
+                : {};
+
             const geminiBody = (model: string, mode: ReasoningMode) =>
               JSON.stringify({
                 systemInstruction: { parts: [{ text: system }] },
@@ -541,7 +738,7 @@ export const Route = createFileRoute("/api/study")({
                   })),
                   { role: "user", parts: [{ text: userContent }] },
                 ],
-                generationConfig: geminiGenerationConfig(model, mode),
+                generationConfig: geminiGenerationConfig(model, mode, jsonConfig()),
               });
 
             const postStream = (model: string, mode: ReasoningMode, timeoutMs: number) =>
@@ -622,7 +819,9 @@ export const Route = createFileRoute("/api/study")({
                 res = await postStream(model, data.mode, timeoutMs);
                 if (res.status === 400) {
                   await res.body?.cancel();
-                  // Attempt 2: streaming with thinking off (config rejection).
+                  // Attempt 2: streaming with thinking off (config rejection) — and
+                  // without the JSON schema, the other thing a model may reject.
+                  useJsonSchema = false;
                   res = await postStream(model, "off", timeoutMs);
                 }
               } catch (err) {
@@ -935,63 +1134,105 @@ export const Route = createFileRoute("/api/study")({
         }
 
         if (!upstream) {
-          // Every path tried and failed. The gateway status decides the HTTP
-          // code (402/429 mirror the gateway's), but the message reports the
-          // actual failures of BOTH the gateway and the configured fallbacks,
-          // so "GEMINI_API_KEY is set but still failing" is finally visible.
+          // Every path tried and failed. The HTTP code follows the gateway's
+          // quota/rate status, and the message reports the actual failures of the
+          // gateway AND the configured fallbacks, so "GEMINI_API_KEY is set but
+          // still failing" is visible instead of a blanket "unavailable".
           const hasGemini = !!readKey("GOOGLE_API_KEY", "GEMINI_API_KEY");
           const hasGroq = !!readKey("GROQ_API_KEY");
           const hasGrok = !!readKey("GROK_API_KEY", "XAI_API_KEY");
           const reasons = [
-            gatewayStatus === 402 ? gatewayError || "Shared gateway: credits exhausted (402)" : "",
-            gatewayStatus === 403 ? gatewayError || "Shared gateway: blocked (403)" : "",
-            gatewayStatus === 429 ? gatewayError || "Shared gateway: rate limited (429)" : "",
-            gatewayStatus === 504 ? gatewayError || "Shared gateway: timed out" : "",
-            gatewayError &&
-            gatewayStatus !== 402 &&
-            gatewayStatus !== 403 &&
-            gatewayStatus !== 429 &&
-            gatewayStatus !== 504
-              ? gatewayError
+            gatewayError,
+            googleError,
+            groqError,
+            grokError,
+            !hasGemini && !googleError
+              ? "no GEMINI_API_KEY is set, so the Google fallback was never attempted"
               : "",
-            googleError || "",
-            groqError || "",
-            grokError || "",
+            !hasGroq ? "no GROQ_API_KEY is set in the deployment" : "",
+            !hasGrok && !hasGemini ? "no GROK_API_KEY / XAI_API_KEY is set" : "",
           ].filter(Boolean);
 
-          let message =
-            "The AI providers are unavailable right now — please try again in a moment.";
-          if (reasons.length > 0) {
-            message =
-              "The AI providers are unavailable right now — please try again in a moment.\n\nWhy this request failed:\n" +
-              reasons.map((r) => `• ${r}`).join("\n");
-            if (gatewayStatus === 402)
-              message +=
-                "\n\nThe shared Lovable AI allowance has run out of credits. " +
-                "Set GEMINI_API_KEY, GROQ_API_KEY, or GROK_API_KEY / XAI_API_KEY in the deployment " +
-                "(or .env.local for local dev) so requests bypass the shared gateway, " +
-                "or add credits / enable auto top-up in Lovable (Settings → Plans & credit usage).";
-            if (!googleError && !hasGemini)
-              message +=
-                "\n\nNote: no GEMINI_API_KEY is set in the deployment, so the Google fallback was never attempted.";
-            if (!groqError && !hasGroq)
-              message += "\n\nNote: no GROQ_API_KEY is set in the deployment.";
-            if (!grokError && !hasGrok)
-              message += "\n\nNote: no GROK_API_KEY / XAI_API_KEY is set in the deployment.";
-          }
-
-          // Prefer 502 over 402 when personal keys are configured — the gateway
-          // being out of credits is not the actionable failure once fallbacks exist.
-          const status =
-            hasGemini || hasGroq || hasGrok
-              ? 502
-              : gatewayStatus === 402
-                ? 402
-                : gatewayStatus === 429
-                  ? 429
-                  : 502;
+          const notice = quotaNotice(gatewayStatus || 0, {
+            personalKeys: { gemini: hasGemini, groq: hasGroq, grok: hasGrok },
+            unconfigured: !hasGemini && !hasGroq && !hasGrok && !apiKey,
+          });
+          const message = quotaNoticeBody(notice, reasons);
+          const status = quotaResponseStatus(notice, hasGemini || hasGroq || hasGrok);
+          console.error(
+            `[study] every provider failed (${status}) — ${reasons.join(" | ").slice(0, 400)}`,
+          );
           return new Response(message, { status });
         }
+
+        // ---- classification: validated JSON, never a partial report -----------
+        // The response is collected, parsed and schema-checked HERE, so what the
+        // charts receive has already been validated. An interrupted stream, a
+        // truncated array or an omitted attempt is a failure (422/502) — the app
+        // never receives "records" it should trust. Nothing is written to
+        // qa_entries for this mode.
+        if (data.mode === "classify") {
+          const collected = await collectUpstreamText(upstream, source);
+          if (collected.interrupted) {
+            return new Response(
+              "The classification stream was interrupted, so it was discarded — nothing was saved.",
+              { status: 502 },
+            );
+          }
+          const expected = classificationAttempts.map((a) => a.index);
+          const report = parseClassificationReport(collected.text, expected);
+          const canonical = canonicalTopicsFrom(docs ?? []);
+          const canonicalized = report.records.map((record) => {
+            const match = canonicalTopicName(record.topic, canonical);
+            return match && match !== record.topic ? { ...record, topic: match } : record;
+          });
+          if (report.rejected.length > 0) {
+            console.error(
+              `[study] classification rejected ${report.rejected.length} row(s): ${report.rejected
+                .map((r) => `#${r.index + 1} ${r.reason}`)
+                .join(" | ")
+                .slice(0, 400)}`,
+            );
+          }
+
+          if (!report.complete) {
+            return new Response(
+              report.error ?? "The classification report was not usable and nothing was saved.",
+              { status: 422 },
+            );
+          }
+
+          const rows: BreakdownRow[] = toRows(canonicalized);
+          return new Response(
+            JSON.stringify({
+              rows,
+              rejected: report.rejected.map((r) => ({ row: r.index + 1, reason: r.reason })),
+              needsReview: report.needsReview.map((r) => ({
+                attempt: r.attempt,
+                part: r.part,
+                because:
+                  r.confidence === "low"
+                    ? "low-confidence topic match"
+                    : r.awarded === null || r.available === null
+                      ? "marks were never stated"
+                      : "invalid marks",
+              })),
+              attemptsClassified: new Set(rows.map((r) => r.attempt)).size,
+              attemptsExpected: expected.length,
+              canonicalTopics: canonical,
+              model: servedModel,
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": "no-store",
+                "X-Study-Model": servedModel,
+              },
+            },
+          );
+        }
+
         const encoder = new TextEncoder();
         const decoder = new TextDecoder();
         let full = "";
@@ -1000,6 +1241,8 @@ export const Route = createFileRoute("/api/study")({
         const stream = new ReadableStream<Uint8Array>({
           async start(controller) {
             const reader = upstream.body!.getReader();
+            let streamError: string | null = null;
+            let sawDone = false;
             try {
               // Non-streaming Gemini fallback already produced plain UTF-8 text —
               // forward it as-is, no SSE parse.
@@ -1024,37 +1267,50 @@ export const Route = createFileRoute("/api/study")({
                     const trimmed = line.trim();
                     if (!trimmed.startsWith("data:")) continue;
                     const payload = trimmed.slice(5).trim();
-                    if (payload === "[DONE]") continue;
-                    try {
-                      const json = JSON.parse(payload) as {
-                        choices?: { delta?: { content?: string } }[];
-                        candidates?: {
-                          content?: { parts?: { text?: string; thought?: boolean }[] };
-                        }[];
-                      };
-                      const delta =
-                        source === "google"
-                          ? (json.candidates?.[0]?.content?.parts ?? [])
-                              // Reasoning summaries arrive as parts flagged
-                              // `thought: true` — scaffolding, not the answer.
-                              .filter((p) => !p.thought)
-                              .map((p) => p.text ?? "")
-                              .join("")
-                          : json.choices?.[0]?.delta?.content;
-                      if (delta) {
-                        full += delta;
-                        controller.enqueue(encoder.encode(delta));
-                      }
-                    } catch {
-                      /* ignore partial json */
+                    if (payload === "[DONE]") {
+                      sawDone = true;
+                      continue;
+                    }
+                    const delta = deltaFromPayload(source, payload);
+                    if (delta) {
+                      full += delta;
+                      controller.enqueue(encoder.encode(delta));
                     }
                   }
                 }
               } // end SSE branch
+            } catch (error) {
+              // The upstream died mid-body. Everything below treats this run as a
+              // FAILURE: no history row, and a sentinel so the browser can say so.
+              streamError =
+                error instanceof Error ? error.message : "the stream ended unexpectedly";
             } finally {
+              const streamCompleted = streamError === null;
+              const decision = shouldPersistVerdict({
+                mode: data.mode,
+                text: full,
+                streamCompleted,
+                requestedParts: data.parts as MarkPart[] | undefined,
+                quotaFailure: gatewayStatus === 402,
+              });
+
+              if (!decision.persist && decision.marker) {
+                // Tell the browser this is not a finished answer. Appended at the
+                // tail so live text is untouched while it streams.
+                try {
+                  controller.enqueue(
+                    encoder.encode(
+                      `\n\n${decision.marker}${decision.reason ? ` (${decision.reason})` : ""}`,
+                    ),
+                  );
+                } catch {
+                  /* the client is already gone */
+                }
+              }
+
               // Save BEFORE closing the stream: once the response closes the
               // worker can be torn down and a pending insert would be dropped.
-              if (full && data.mode !== "insights") {
+              if (decision.persist) {
                 // Marking verdicts carry their input fingerprint so an identical
                 // resubmission replays this exact verdict instead of being
                 // re-marked live (which would sample different marks). The
@@ -1082,6 +1338,12 @@ export const Route = createFileRoute("/api/study")({
                   response: stamped,
                 });
                 if (error) console.error("qa_entries insert failed", error.message);
+              } else if (data.mode !== "insights" && data.mode !== "classify") {
+                console.error(
+                  `[study] run NOT saved — ${decision.reason ?? "incomplete"}${
+                    sawDone ? "" : " (no [DONE] from the provider)"
+                  }`,
+                );
               }
               controller.close();
             }

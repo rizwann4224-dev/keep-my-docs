@@ -11,7 +11,7 @@ async function runTests() {
     "The process uses distributed hash tables and consistent hashing to shard keys across nodes",
     ["consistent hashing", "DHT", "sharding"],
     10,
-    0.5
+    0.5,
   );
   console.log("Test 1", res1);
   // Expect score == 10
@@ -21,7 +21,7 @@ async function runTests() {
     "I like pancakes",
     ["consistent hashing", "DHT", "sharding"],
     10,
-    0.5
+    0.5,
   );
   console.log("Test 2", res2);
   // Expect score small (likely 0)
@@ -31,7 +31,7 @@ async function runTests() {
     "Hashing distributes keys across nodes; replication can be used for fault tolerance",
     ["consistent hashing", "DHT", "sharding"],
     10,
-    0.6
+    0.6,
   );
   console.log("Test 3", res3);
   // Expect score between 1 and 9

@@ -24,12 +24,18 @@ function load(): State {
     if (!raw) return {};
     const parsed = JSON.parse(raw) as State;
     for (const key of Object.keys(parsed)) {
+      // A turn still marked "streaming" when the tab was reloaded never finished.
+      // Its partial text stays visible for reference, but it is a FAILURE, not a
+      // completed answer — that is what stops half a marking verdict from being
+      // treated (and re-used) as a result.
       parsed[key] = (parsed[key] ?? []).map((turn) =>
         turn.status === "streaming"
           ? {
               ...turn,
-              status: turn.answer ? "done" : "error",
-              ...(turn.answer ? {} : { error: "Interrupted before the answer arrived." }),
+              status: "error",
+              error: turn.answer
+                ? "Interrupted mid-answer — this was not completed and was not saved as a result."
+                : "Interrupted before the answer arrived.",
             }
           : turn,
       );
