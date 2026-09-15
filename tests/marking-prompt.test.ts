@@ -19,7 +19,7 @@ function check(label: string, ok: boolean) {
 }
 
 const sources = "<<<SOURCE 1: Test Manual>>>\nThe rate is 29%.\n<<<END SOURCE 1>>>";
-const parts = ["feedback", "marks", "suggested", "recommendments"] as const;
+const parts = ["feedback", "marks", "suggested", "recommendations"] as const;
 
 // The rules that apply at every severity.
 for (const rigour of ["moderate", "strict", "hard"] as const) {
@@ -44,6 +44,10 @@ for (const rigour of ["moderate", "strict", "hard"] as const) {
   check(
     `${rigour}: deductions must name their reasoning basis`,
     prompt.includes("DEDUCTIONS MUST NAME THEIR REASONING BASIS"),
+  );
+  check(
+    `${rigour}: omitting the topic/standard name never costs marks`,
+    prompt.includes("TOPIC AND STANDARD NAMES ARE NOT MARKS"),
   );
   check(
     `${rigour}: re-mark consistency rule present (same input → same marks)`,
@@ -90,7 +94,10 @@ check(
   strict.includes("NO CREDIT FOR CONFIDENCE, LENGTH OR FLUENCY"),
 );
 check("strict: vague hedging earns zero", strict.includes("VAGUE HEDGING = ZERO"));
-check("strict: correct but irrelevant earns zero", strict.includes("CORRECT BUT IRRELEVANT = ZERO"));
+check(
+  "strict: correct but irrelevant earns zero",
+  strict.includes("CORRECT BUT IRRELEVANT = ZERO"),
+);
 check(
   "strict: the question's tested skill is identified first",
   strict.includes("IDENTIFY WHAT THE QUESTION TESTS"),

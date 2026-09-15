@@ -1,0 +1,478 @@
+{
+  "version": 1,
+  "suite": "study-desk-behaviour",
+  "description": "Behaviour evaluation cases for marking fairness, exam setting and export safety. Each case is checked offline against the real prompt builders and validators (so it runs in CI with no key), and the same case carries the assertions a live model run must satisfy (RUN_LIVE_EVAL=1 with a GEMINI_API_KEY).",
+  "conventions": {
+    "expect.promptMustContain": "Strings the built system prompt must contain — the rule the model is actually given.",
+    "expect.promptMustNotContain": "Strings the built system prompt must NOT contain — retired checklist behaviour.",
+    "expect.deterministic": "Assertions evaluated by the app's own validators against `artifacts` — no model call.",
+    "live.assertions": "Assertions evaluated against a live model's answer when the runner is given RUN_LIVE_EVAL=1."
+  },
+  "cases": [
+    {
+      "id": "valid-alternative-credited",
+      "title": "A correct alternative route absent from the suggested answer is credited",
+      "mode": "mark",
+      "rigour": "strict",
+      "rubric": "Suggested answers are examples of creditworthy answers, not an exhaustive checklist unless an official marking scheme explicitly says an element is compulsory. Credit a valid alternative argument, procedure, calculation method, example or conclusion even when absent from the suggested answer, when it is technically correct, relevant, sufficiently developed or applied, and distinct from already credited work.",
+      "inputs": {
+        "question": "Q.1 (10 marks) A company bought machinery for Rs 1,000,000 on 1 July 2024. Required: compute the depreciation charge for the year ended 30 June 2025 and explain the treatment.",
+        "userAnswer": "Straight-line over the machine's useful life of 5 years gives Rs 200,000 for a full year; the asset was held for 12 months of the year to 30 June 2025, so the charge is Rs 200,000. The residual value of nil is used because the source states the machine has no resale value.",
+        "suggestedAnswer": "Reducing balance at 20% per annum: Rs 1,000,000 x 20% = Rs 200,000 charge for the year.",
+        "sources": [
+          {
+            "name": "Accounting Study Text",
+            "extracted_text": "[Page 1]\nPPE may be depreciated on either a straight-line or a reducing-balance basis, provided the basis reflects the pattern of consumption. A method is not 'wrong' merely because the illustrative answer used another."
+          }
+        ]
+      },
+      "artifacts": {
+        "report": "# 🔍 Item-by-Item Detailed Marking & Feedback\n\n**Matter (i): Depreciation charge**\n\n**Correct points credited**\n- Candidate's words/workings: \"Straight-line over the machine's useful life of 5 years gives Rs 200,000\"\n- Requirement satisfied: compute the charge for the year ended 30 June 2025\n- Technical support: [Source: Accounting Study Text]\n- Marks awarded: 4\n\n**Valid alternatives credited**\n- \"Straight-line ... provided the basis reflects the pattern of consumption\" — alternative method, correct, applied, distinct: 2 marks\n\n**Pending review**\nNone\n\n# 📊 Marks\n\n| Item | Marks available | Marks awarded | Justification |\n|---|---|---|---|\n| Compute charge | 6 | 6 | \"Straight-line ... Rs 200,000\" |\n\n**Marks awarded: 6 / 10**\n",
+        "classification": [
+          {
+            "attempt": 1,
+            "part": "(i)",
+            "topic": "Property, plant and equipment — depreciation",
+            "subtopic": "Choice of depreciation basis",
+            "confidence": "high",
+            "evidence": "Straight-line over the machine's useful life of 5 years gives Rs 200,000",
+            "source": "Accounting Study Text",
+            "awarded": 6,
+            "available": 10,
+            "weakness": "None",
+            "action": "State the consumption pattern that justifies the chosen basis."
+          }
+        ]
+      },
+      "expect": {
+        "promptMustContain": [
+          "examples of creditworthy answers, not an exhaustive checklist",
+          "VALID ALTERNATIVES",
+          "Valid alternatives credited",
+          "distinct from work already credited"
+        ],
+        "promptMustNotContain": ["Any point absent from the suggested answer scores zero"],
+        "deterministic": [
+          {
+            "assert": "classificationAccepted",
+            "expectCount": 1,
+            "expectPercent": 60
+          },
+          {
+            "assert": "reportSectionPresent",
+            "section": "Valid alternatives credited"
+          }
+        ]
+      },
+      "live": {
+        "assertions": [
+          {
+            "mustMatch": "Valid alternatives credited"
+          },
+          {
+            "mustMatch": "200,000"
+          },
+          {
+            "marksNotAbove": 10
+          },
+          {
+            "percentageEquals": "awarded/available"
+          }
+        ]
+      },
+      "parts": ["feedback", "marks"]
+    },
+    {
+      "id": "duplicate-points-count-once",
+      "title": "Repeated or reworded points are never credited twice",
+      "mode": "mark",
+      "rigour": "strict",
+      "rubric": "Do not count repeated or reworded points twice; do not award marks for repetitions. Recheck every positive mark before output and remove duplicate credit.",
+      "inputs": {
+        "question": "Q.2 (8 marks) List and explain the safeguards available to an audit firm facing a self-review threat.",
+        "userAnswer": "The firm should use an independent reviewer. An independent review is exactly the safeguard needed — the reviewer was independent. Independence of the reviewer is very important and should be ensured.",
+        "suggestedAnswer": "Two safeguards expected: (1) independent internal review by someone not on the engagement team; (2) external review or consultation with the institute. One mark per identified safeguard and one per explanation.",
+        "sources": [
+          {
+            "name": "Code of Ethics Extract",
+            "extracted_text": "[Page 1]\nSelf-review threat safeguards include using an independent reviewer and consulting a professional body."
+          }
+        ]
+      },
+      "artifacts": {
+        "report": "# 🔍 Item-by-Item Detailed Marking & Feedback\n\n**Matter (i): Safeguards**\n\n**Correct points credited**\n- Candidate's words: \"The firm should use an independent reviewer.\"\n- Requirement satisfied: identify a safeguard\n- Technical support: [Source: Code of Ethics Extract]\n- Marks awarded: 1\n\n**Valid alternatives credited**\nNone\n\n**Pending review**\nNone\n\n# 📊 Marks\n\n| Item | Marks available | Marks awarded | Justification |\n|---|---|---|---|\n| Independent reviewer | 4 | 1 | \"use an independent reviewer\" — identified, explained once only; the three restatements are the same point |\n| Consultation with the institute | 4 | 0 | Absent |\n\n**Marks awarded: 1 / 8**\n",
+        "classification": [
+          {
+            "attempt": 1,
+            "part": "whole",
+            "topic": "Ethics — threats and safeguards",
+            "subtopic": "Self-review threat safeguards",
+            "confidence": "high",
+            "evidence": "The firm should use an independent reviewer.",
+            "source": "Code of Ethics Extract",
+            "awarded": 1,
+            "available": 8,
+            "weakness": "One safeguard restated four times; the second safeguard was never raised",
+            "action": "Practise listing distinct safeguards, one line each, then stop."
+          }
+        ]
+      },
+      "expect": {
+        "promptMustContain": [
+          "Do not count repeated or reworded points twice",
+          "Do not award marks for effort",
+          "Remove unsupported or duplicate credit"
+        ],
+        "deterministic": [
+          {
+            "assert": "classificationAccepted",
+            "expectCount": 1,
+            "expectPercent": 12.5
+          },
+          {
+            "assert": "duplicateRowsRejected",
+            "rowsField": "classification"
+          }
+        ],
+        "promptMustNotContain": ["Every mention of a credited point earns another mark"]
+      },
+      "live": {
+        "assertions": [
+          {
+            "mustMatch": "restat|duplicate|same point"
+          },
+          {
+            "marksNotAbove": 4
+          }
+        ]
+      },
+      "parts": ["feedback", "marks"]
+    },
+    {
+      "id": "compulsory-requirement-missing",
+      "title": "A missing compulsory element costs only its own marks and cannot be replaced",
+      "mode": "mark",
+      "rigour": "strict",
+      "rubric": "If a compulsory requirement is missing, deduct only marks assigned to that requirement. A different valid point cannot replace a compulsory element. Do not redistribute marks from missing criteria to stronger criteria.",
+      "inputs": {
+        "question": "Q.3 (10 marks) State TWO deductions against salary income, quoting the exact wording of the governing section for each, and compute the taxable income where gross salary is Rs 1,200,000 and the deductions are Rs 300,000.",
+        "userAnswer": "Deductions reduce the tax burden. Allowances given by the employer are deductible and so are expenses incurred in earning the salary. Taxable income is therefore Rs 900,000, which shows the taxpayer has planned well.",
+        "suggestedAnswer": "Compulsory (per official scheme): name two deductions (2 marks), quote the exact wording of the section for each (4 marks), compute 1,200,000 - 300,000 = 900,000 (4 marks). The scheme states the quotation of wording is compulsory.",
+        "sources": [
+          {
+            "name": "Tax Ordinance Notes",
+            "extracted_text": "[Page 1]\nSection 20 clause (3) allows an allowance to the extent of the actual amount received. Clause (9) allows expenses necessarily incurred in the performance of duties. The statute's wording must be quoted where required."
+          }
+        ]
+      },
+      "artifacts": {
+        "report": "# 🔍 Item-by-Item Detailed Marking & Feedback\n\n**Matter (i): Two deductions**\n\n**Correct points credited**\n- Candidate's words: \"expenses incurred in earning the salary\"\n- Requirement satisfied: identifying a deduction in substance\n- Technical support: [Source: Tax Ordinance Notes] clause (9)\n- Marks awarded: 1\n\n**Valid alternatives credited**\nNone\n\n**Pending review**\nNone\n\n**Errors**\n- \"Taxable income is therefore Rs 900,000\" is arithmetically right and credited; \"planned well\" is an unsupported conclusion.\n\n**Genuine omissions**\n- Exact statutory wording never quoted although the scheme makes it compulsory: 4 marks lost, no more.\n\n# 📊 Marks\n\n| Item | Marks available | Marks awarded | Justification |\n|---|---|---|---|\n| Name two deductions | 2 | 1 | \"expenses incurred in earning the salary\"; the other is vague |\n| Quote exact section wording | 4 | 0 | Absent — compulsory element, cannot be substituted |\n| Compute taxable income | 4 | 4 | \"Rs 900,000\" |\n\n**Marks awarded: 5 / 10**\n",
+        "classification": [
+          {
+            "attempt": 1,
+            "part": "(a)",
+            "topic": "Income tax — salary",
+            "subtopic": "Deductions and statutory wording",
+            "confidence": "high",
+            "evidence": "expenses incurred in earning the salary",
+            "source": "Tax Ordinance Notes",
+            "awarded": 1,
+            "available": 6,
+            "weakness": "Compulsory quotation of the section wording was omitted",
+            "action": "Drill quoting statutory wording verbatim before explaining it."
+          },
+          {
+            "attempt": 1,
+            "part": "(b)",
+            "topic": "Income tax — salary",
+            "subtopic": "Computation of taxable income",
+            "confidence": "high",
+            "evidence": "Taxable income is therefore Rs 900,000",
+            "source": "Tax Ordinance Notes",
+            "awarded": 4,
+            "available": 4,
+            "weakness": "None",
+            "action": "Keep showing the subtraction line in the answer."
+          }
+        ]
+      },
+      "expect": {
+        "promptMustContain": [
+          "deduct only the marks assigned to that requirement",
+          "A different valid point cannot replace a compulsory element",
+          "Do not redistribute marks from missing criteria"
+        ],
+        "deterministic": [
+          {
+            "assert": "classificationAccepted",
+            "expectCount": 2,
+            "expectPercent": 50
+          },
+          {
+            "assert": "multiPartSplit",
+            "expectTopics": 1,
+            "expectParts": 2
+          }
+        ],
+        "promptMustNotContain": ["Strong work elsewhere can compensate for a missing requirement"]
+      },
+      "live": {
+        "assertions": [
+          {
+            "mustMatch": "compulsory"
+          },
+          {
+            "marksNotAbove": 6
+          },
+          {
+            "mustNotMatch": "generous|well-argued|good effort"
+          }
+        ]
+      },
+      "parts": ["feedback", "marks"]
+    },
+    {
+      "id": "unsupported-alternative-pending-review",
+      "title": "A plausible alternative the sources cannot verify is held back, never credited",
+      "mode": "mark",
+      "rigour": "strict",
+      "rubric": "Where an alternative is plausible but the uploaded sources cannot verify it, list it as 'Pending review' and exclude it from awarded marks and total marks.",
+      "inputs": {
+        "question": "Q.4 (6 marks) State the write-off period allowed for goodwill under the applicable standard in your study text and justify it.",
+        "userAnswer": "Goodwill may be amortised over ten years, which is the maximum period some older guidance allows.",
+        "suggestedAnswer": "The study text requires impairment testing annually with no fixed amortisation period.",
+        "sources": [
+          {
+            "name": "Intangibles Chapter",
+            "extracted_text": "[Page 1]\nGoodwill: test for impairment annually. No amortisation period is prescribed in this text."
+          }
+        ]
+      },
+      "artifacts": {
+        "report": "# 🔍 Item-by-Item Detailed Marking & Feedback\n\n**Matter (i): Goodwill treatment**\n\n**Correct points credited**\n- Candidate's words: \"the write-off period ... some older guidance\" — no point in this answer is verified by the sources\n- Requirement satisfied: none yet\n- Technical support: —\n- Marks awarded: 0\n\n**Valid alternatives credited**\nNone\n\n**Pending review**\n- \"Goodwill may be amortised over ten years\": plausible historically, but the uploaded sources neither state nor reject a ten-year cap. Not credited; excluded from the total. Needs the standard's own text to confirm.\n\n**Errors**\n- \"some older guidance allows\" is an unreferenced assertion — recorded, not penalised beyond zero for the point.\n\n**Genuine omissions**\n- Annual impairment testing never mentioned: 4 marks.\n\n# 📊 Marks\n\n| Item | Marks available | Marks awarded | Justification |\n|---|---|---|---|\n| State the treatment | 4 | 0 | Absent — impairment testing not stated |\n| Justify it | 2 | 0 | \"ten years\" is unverified: pending review, worth nothing |\n\n**Marks awarded: 0 / 6**\n",
+        "classification": [
+          {
+            "attempt": 1,
+            "part": "whole",
+            "topic": "Intangible assets — goodwill",
+            "subtopic": "Impairment testing versus amortisation",
+            "confidence": "low",
+            "evidence": "Goodwill may be amortised over ten years",
+            "source": "not in the sources",
+            "awarded": 0,
+            "available": 6,
+            "weakness": "Required treatment (annual impairment testing) omitted; the alternative offered cannot be verified",
+            "action": "Learn the treatment the text actually states before arguing alternatives."
+          }
+        ]
+      },
+      "expect": {
+        "promptMustContain": [
+          "list it under \"Pending review\"",
+          "exclude it from awarded marks and from total marks"
+        ],
+        "deterministic": [
+          {
+            "assert": "lowConfidenceExcluded",
+            "expectCounted": 0,
+            "expectPercent": null
+          },
+          {
+            "assert": "reportSectionPresent",
+            "section": "Pending review"
+          }
+        ],
+        "promptMustNotContain": ["Any alternative is credited even without support"]
+      },
+      "live": {
+        "assertions": [
+          {
+            "mustMatch": "Pending review"
+          },
+          {
+            "mustNotMatch": "awarded 1 mark for the ten-year view"
+          },
+          {
+            "marksNotAbove": 0
+          }
+        ]
+      },
+      "parts": ["feedback", "marks"]
+    },
+    {
+      "id": "new-subject-without-past-papers",
+      "title": "A brand-new subject with no past papers still gets a professional question from the syllabus",
+      "mode": "exam",
+      "difficulty": "professional",
+      "rubric": "Create original professional-level practice questions from syllabus outcomes and technical sources, even if no past papers exist. Past papers are optional style evidence only. If essential syllabus or technical material is missing, ask for it instead of inventing rules or pretending the question is official.",
+      "inputs": {
+        "question": "Set one 20-mark question for Behavioural Science on leadership styles. I have only the syllabus outline and the study text in this notebook — there are no past papers.",
+        "sources": [
+          {
+            "name": "ICMAP Behavioural Science Syllabus",
+            "extracted_text": "[Page 1]\nOutcome 4: evaluate leadership styles (trait, behavioural, contingency, transactional, transformational) and their appropriateness to situations."
+          },
+          {
+            "name": "Behavioural Science Study Text ch.11",
+            "extracted_text": "[Page 1]\nFiedler's contingency model holds that leadership effectiveness depends on the match between style and situational favourability: leader-member relations, task structure, position power."
+          }
+        ]
+      },
+      "artifacts": {
+        "report": "Question 1 (20 marks)\n\nZenith Logistics operates in three regions. In Region A the work is routine and the team has worked with its manager for six years. In Region B a new turn-around project has unclear procedures and a manager recently appointed. In Region C the team is expert and self-managing under a newly promoted leader.\n\n**Required:**\n(a) Assess, for each region, which leadership approach the situation supports (12 marks)\n(b) Evaluate two limitations of relying on that assessment alone (08 marks)\n",
+        "missingMaterialReply": "I need one more source before I can set this question: the markscheme distribution for Outcome 4."
+      },
+      "expect": {
+        "promptMustContain": [
+          "PAST PAPERS — OPTIONAL style evidence only",
+          "NO PAST PAPERS? SET ANYWAY",
+          "I need one more source before I can set this question"
+        ],
+        "promptMustNotContain": [
+          "Ask the user to upload past papers",
+          "MODEL YOUR QUESTIONS ON THE PAST PAPERS IN THE SOURCES"
+        ],
+        "deterministic": [
+          {
+            "assert": "headingsAreNeutral",
+            "of": "artifacts.report"
+          }
+        ]
+      },
+      "live": {
+        "assertions": [
+          {
+            "mustMatch": "^Question 1 \\(20 marks\\)"
+          },
+          {
+            "mustNotMatch": "official|ICAP.*20[0-9][0-9]|as examined"
+          },
+          {
+            "mustNotMatch": "\\[Source:"
+          }
+        ]
+      }
+    },
+    {
+      "id": "exam-question-leaks-no-answers",
+      "title": "The candidate paper reveals nothing about what it tests",
+      "mode": "exam",
+      "difficulty": "professional",
+      "rubric": "Do not reveal the topic, standard, hidden issue, learning objective, source reference, model answer, modelled-on paper, new angle or solution hint in the candidate paper. Marking guide, solution, topic mapping or setter rationale only when explicitly requested; when requested, put it after the paper under its own heading with acceptable alternatives and compulsory elements.",
+      "inputs": {
+        "question": "Set one 15-mark question testing IAS 16 revaluation, with the marking guide.",
+        "sources": [
+          {
+            "name": "IAS 16 Notes",
+            "extracted_text": "[Page 1]\nRevaluation surpluses go to OCI and to a revaluation surplus in equity, unless they reverse a prior expense through profit. A revalued asset is depreciated on its revalued amount over its remaining life."
+          }
+        ]
+      },
+      "artifacts": {
+        "report": "Question 1 (15 marks)\n\nOn 1 January 2023 Khyber Mills recognised a plant for Rs 40,000,000 with a useful life of ten years and no residual value. On 1 January 2025 an independent valuation set the plant's amount at Rs 30,000,000 and remaining life at eight years. The plant was sold on 31 December 2025.\n\n**Required:**\n(a) Prepare the journal entries from 1 January 2023 to the revaluation date (08 marks)\n(b) Explain how the revaluation and the sale are reported (07 marks)\n\n# Marking guide (not for candidates)\n\n| Part | Point expected | Marks |\n|---|---|---|\n| (a) | Depreciation Rs 4,000,000 p.a. to the valuation date | 3 |\n| (a) | Revaluation increase of Rs 2,000,000 to OCI | 3 |\n| (b) | Depreciation on the revalued amount over the remaining life | 4 |\n\n**Compulsory elements:** the prior-year depreciation must be charged before the revaluation is measured (2 marks of part (a)); no substitute is accepted.\n**Acceptable alternatives:** either presentation order for the OCI and equity lines, and any arithmetic route to the same carrying amount, is credited.",
+        "candidatePaper": "Question 1 (15 marks)\n\nOn 1 January 2023 Khyber Mills recognised a plant for Rs 40,000,000 with a useful life of ten years and no residual value. On 1 January 2025 an independent valuation set the plant's amount at Rs 30,000,000 and remaining life at eight years. The plant was sold on 31 December 2025.\n\n**Required:**\n(a) Prepare the journal entries from 1 January 2023 to the revaluation date (08 marks)\n(b) Explain how the revaluation and the sale are reported (07 marks)\n"
+      },
+      "expect": {
+        "promptMustContain": [
+          "CANDIDATE-PAPER FORM (what the student sees — no leaks)",
+          "Neutral headings ONLY",
+          "MARKING GUIDE — only when explicitly requested, and always AFTER the candidate paper",
+          "Acceptable alternatives"
+        ],
+        "promptMustNotContain": [
+          "Put the marking guide before the candidate paper",
+          "Include the learning objective in the question text"
+        ],
+        "deterministic": [
+          {
+            "assert": "noLeaks",
+            "of": "artifacts.candidatePaper"
+          },
+          {
+            "assert": "marksSum",
+            "of": "artifacts.candidatePaper"
+          }
+        ]
+      },
+      "live": {
+        "assertions": [
+          {
+            "mustNotMatch": "IAS 16|Standard|revaluation surplus is the point|Learning objective|hidden issue|Modelled on|New angle|\\[Source:"
+          },
+          {
+            "mustMatch": "^Question 1 \\(15 marks\\)"
+          }
+        ]
+      }
+    },
+    {
+      "id": "topic-name-omitted-not-penalised",
+      "title": "A complete answer that never names the topic or standard still earns full marks",
+      "mode": "mark",
+      "rigour": "strict",
+      "parts": ["feedback", "marks"],
+      "rubric": "Marks must not be deducted solely because the student did not write the name of the topic, chapter, section or standard. Judge the demonstrated knowledge; an answer that semantically matches the expected content earns full marks without the label, and naming it earns nothing by itself.",
+      "inputs": {
+        "question": "Q.1 (12 marks) A plant carried at Rs 26,000,000 (cost 40,000,000) is revalued on 1 January 2025 to Rs 30,000,000. Required: determine the carrying amount after the revaluation and explain where the movement is reported.",
+        "userAnswer": "Cost 40,000,000 less accumulated depreciation 14,000,000 is 26,000,000. The valuation is 30,000,000, so the carrying amount becomes 30,000,000 and the 2,000,000 increase goes to the revaluation surplus, not to profit or loss. The surplus is not taken to profit or loss.",
+        "suggestedAnswer": "The asset is restated to 30,000,000; the 2,000,000 increase is recognised in other comprehensive income and accumulated in equity under revaluation surplus (IAS 16).",
+        "sources": [
+          {
+            "name": "Study Text — Property, plant and equipment",
+            "extracted_text": "[Page 4]\nA revaluation increases the carrying amount to the valued amount. The increase is recognised in other comprehensive income and accumulated in equity under a revaluation surplus, except to the extent it reverses a previous decrease recognised in profit or loss. The standard numbers and chapter titles in this text are for the reader's navigation; the substance of the requirement is the measurement and presentation."
+          }
+        ]
+      },
+      "artifacts": {
+        "report": "# 🔍 Item-by-Item Detailed Marking & Feedback\n\n**Matter (i): Revaluation and its effect on the carrying amount**\n\n**Correct points credited**\n- Candidate's words/workings: \"carrying amount becomes 30,000,000 and the 2,000,000 increase goes to the revaluation surplus\"\n- Requirement satisfied: measure and report the revaluation\n- Technical support: [Source: Study Text — Property, plant and equipment]\n- Marks awarded: 8\n\n**Valid alternatives credited**\n- \"eliminate the accumulated depreciation against the gross cost first\" — a different but stated presentation of the same carrying amount: credited, no mark for the label itself\n\n**Pending review**\nNone\n\n# 📊 Marks\n\n| Item | Marks available | Marks awarded | Justification |\n|---|---|---|---|\n| Measure the revaluation | 8 | 8 | \"carrying amount becomes 30,000,000 ... increase goes to the revaluation surplus\" |\n| Report it | 4 | 4 | \"surplus is not taken to profit or loss\" |\n\n**Marks awarded: 12 / 12**\n- No deduction is made anywhere in this report for never writing the name of the standard or the chapter: the substance is complete.\n",
+        "classification": [
+          {
+            "attempt": 1,
+            "part": "(a)",
+            "topic": "Property, plant and equipment — revaluation",
+            "subtopic": "Carrying amount and the revaluation surplus",
+            "confidence": "high",
+            "evidence": "carrying amount becomes 30,000,000 and the 2,000,000 increase goes to the revaluation surplus",
+            "source": "Study Text — Property, plant and equipment",
+            "awarded": 12,
+            "available": 12,
+            "weakness": "None",
+            "action": "Keep the workings line visible and state the presentation as written."
+          }
+        ]
+      },
+      "expect": {
+        "promptMustContain": [
+          "TOPIC AND STANDARD NAMES ARE NOT MARKS",
+          "never deduct because the candidate did not write the name of the topic",
+          "Naming the topic correctly earns nothing by itself"
+        ],
+        "promptMustNotContain": [
+          "deduct for not naming the topic",
+          "Award marks for stating the chapter title"
+        ],
+        "deterministic": [
+          {
+            "assert": "classificationAccepted",
+            "expectCount": 1,
+            "expectPercent": 100
+          },
+          {
+            "assert": "noNamingPenalty",
+            "of": "artifacts.report"
+          }
+        ]
+      },
+      "live": {
+        "assertions": [
+          {
+            "mustNotMatch": "did not (name|cite|state) the (standard|topic|chapter|section)|no (topic|standard) name|missing (the )?(topic|standard) (name|title)"
+          },
+          {
+            "marksNotAbove": 12
+          }
+        ]
+      }
+    }
+  ]
+}

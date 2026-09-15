@@ -19,7 +19,7 @@
  * deterministic settings (its thinking budget is unaffected by them).
  */
 
-export type StudyMode = "ask" | "mark" | "insights" | "exam" | "challenge";
+export type StudyMode = "ask" | "mark" | "insights" | "exam" | "challenge" | "classify";
 
 /** Effort tiers, cheapest to deepest. */
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
@@ -41,6 +41,9 @@ const MODE_EFFORT: Record<StudyMode, ReasoningEffort> = {
   exam: "high",
   challenge: "xhigh",
   insights: "medium",
+  // Classification is extraction, not judgement: a shallow tier is enough and it
+  // keeps the JSON well-formed, which is what the graph's arithmetic depends on.
+  classify: "low",
 };
 
 /** Gemini 3.x levels. There is nothing above "high", so xhigh saturates there. */

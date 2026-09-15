@@ -17,3 +17,19 @@ How to apply (process)
 Notes for automated graders
 - Implementers should use a semantic similarity check (embeddings or a model) or robust keyword/topic-extraction rather than relying on the presence of a single string (topic name).
 - Provide clear logs/justifications for any mark deduction so human reviewers can audit and correct edge cases.
+
+Where this policy is enforced
+- `src/lib/study-prompts.ts` → `CRITICAL_EVALUATION_STANDARD` carries the
+  "TOPIC AND STANDARD NAMES ARE NOT MARKS" rule, so no marking, challenge or
+  re-mark prompt can score a label instead of the knowledge behind it. Naming a
+  topic earns nothing by itself; omitting a name costs nothing.
+- The same file keeps topic *identity* out of the data model too: performance
+  rows are grouped by the syllabus/contents names the notebook actually
+  contains (`extractCanonicalTopics`), and an answer that never names its topic
+  is still matched to the right bar by substance rather than by title.
+- `tests/eval/behaviour-cases.json` case
+  `topic-name-omitted-not-penalised` (run by `npm test`) fails if a report ever
+  writes a naming complaint into feedback, into a row's weakness, or into a mark.
+- If a deduction is ever made here, `DEDUCTIONS MUST NAME THEIR REASONING
+  BASIS` requires the reason to be a reasoning gap (wrong rate, no workings,
+  matter not applied), which a missing title can never be.

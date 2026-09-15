@@ -1,5 +1,7 @@
 import {
   AlignmentType,
+  Footer,
+  PageNumber,
   BorderStyle,
   Document,
   HeadingLevel,
@@ -15,6 +17,18 @@ import {
   WidthType,
 } from "docx";
 import { fileNameFromQuestion, type HistoryExport } from "@/lib/export-pdf";
+import {
+  conciseTitle,
+  isListContinuation,
+  parseListLine,
+  proportionalColumnWidths,
+  shortenHeading,
+} from "@/lib/export-format";
+
+/** Word exports are set in Calibri (the requirement), everywhere, including headings. */
+const WORD_FONT = "Calibri";
+/** Approximate Calibri advance width per character, in twips at 11pt — 1/20 pt units. */
+const CHAR_TWIPS = 105;
 
 const CONTENT_WIDTH = 9360;
 
@@ -54,20 +68,35 @@ function splitRow(line: string): string[] {
     .map((c) => c.trim());
 }
 
-function buildTable(lines: string[]): Table {
+/**
+ * Markdown table → docx table.
+ *
+ * Widths follow the content instead of splitting the page evenly, the header row
+ * repeats when a table runs onto another page, and rows are allowed to break, so
+ * nothing is clipped at a page boundary.
+ */
+export function buildTable(lines: string[], totalWidth = CONTENT_WIDTH): Table {
   const rows = lines.map(splitRow).filter((cells) => !cells.every((c) => /^:?-{2,}:?$/.test(c)));
-  const columns = Math.max(...rows.map((r) => r.length));
-  const width = Math.floor(CONTENT_WIDTH / columns);
-  const widths = Array.from({ length: columns }, (_, i) =>
-    i === columns - 1 ? CONTENT_WIDTH - width * (columns - 1) : width,
+  const columns = Math.max(1, ...rows.map((r) => r.length));
+  const widths = proportionalColumnWidths(
+    rows,
+    totalWidth,
+    (text) => Math.min(totalWidth / 2, text.replace(/\s+/g, " ").trim().length * CHAR_TWIPS),
+    { min: 900, maxShare: 0.55, padding: 240 },
   );
+  const used = widths.reduce((a, b) => a + b, 0) || totalWidth;
+  const lastGap = Math.max(0, totalWidth - used);
+  if (widths.length) widths[widths.length - 1] = (widths.at(-1) ?? 0) + lastGap;
 
   return new Table({
-    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    width: { size: totalWidth, type: WidthType.DXA },
     columnWidths: widths,
     rows: rows.map(
       (cells, rowIndex) =>
         new TableRow({
+          // Header stays on top when the table continues onto the next page.
+          ...(rowIndex === 0 ? { tableHeader: true } : {}),
+          cantSplit: false,
           children: widths.map(
             (w, i) =>
               new TableCell({
@@ -87,8 +116,15 @@ function buildTable(lines: string[]): Table {
   });
 }
 
-/** Markdown-lite → docx block elements. */
-function markdownToBlocks(markdown: string): (Paragraph | Table)[] {
+/**
+ * Markdown-lite → docx block elements.
+ *
+ * List labels are written into the paragraph as text and never renumbered by
+ * Word's own list numbering: "(b)" and "ii." must keep matching the requirement
+ * they were answering. Each level indents and hangs, so a wrapped point lines up
+ * under its own first word.
+ */
+function markdownToBlocks(markdown: string, totalWidth = CONTENT_WIDTH): (Paragraph | Table)[] {
   const lines = markdown.replace(/\r/g, "").split("\n");
   const blocks: (Paragraph | Table)[] = [];
   let i = 0;
@@ -108,7 +144,7 @@ function markdownToBlocks(markdown: string): (Paragraph | Table)[] {
         table.push(lines[i] ?? "");
         i += 1;
       }
-      blocks.push(buildTable(table));
+      blocks.push(buildTable(table, totalWidth));
       blocks.push(new Paragraph({ children: [new TextRun("")] }));
       continue;
     }
@@ -116,6 +152,7 @@ function markdownToBlocks(markdown: string): (Paragraph | Table)[] {
     const heading = /^(#{1,4})\s+(.*)$/.exec(trimmed);
     if (heading) {
       const level = heading[1]!.length;
+      const text = shortenHeading(heading[2] ?? "");
       blocks.push(
         new Paragraph({
           heading:
@@ -124,33 +161,34 @@ function markdownToBlocks(markdown: string): (Paragraph | Table)[] {
               : level === 2
                 ? HeadingLevel.HEADING_2
                 : HeadingLevel.HEADING_3,
-          children: runs(heading[2] ?? ""),
+          children: runs(text),
         }),
       );
       i += 1;
       continue;
     }
 
-    if (/^([-*•]|\u2022)\s+/.test(trimmed)) {
+    const parsed = parseListLine(line);
+    if (parsed.isListItem) {
+      let text = parsed.text;
+      i += 1;
+      while (i < lines.length && isListContinuation(lines[i] ?? "", true)) {
+        const next = (lines[i] ?? "").trim();
+        if (!next || next.startsWith("|")) break;
+        text += ` ${next}`;
+        i += 1;
+      }
+      const plainBullet = parsed.kind === "dash" || parsed.kind === "bullet";
+      const marker = plainBullet ? "•" : parsed.marker;
+      const indentLeft = 360 + parsed.level * 360;
       blocks.push(
         new Paragraph({
-          numbering: { reference: "bullets", level: 0 },
-          children: runs(trimmed.replace(/^([-*•]|\u2022)\s+/, "")),
+          alignment: AlignmentType.LEFT,
+          indent: { left: indentLeft + 320, hanging: 320 },
+          spacing: { after: 60 },
+          children: [new TextRun({ text: `${marker}\t`, bold: false }), ...runs(text)],
         }),
       );
-      i += 1;
-      continue;
-    }
-
-    const numbered = /^\d+[.)]\s+(.*)$/.exec(trimmed);
-    if (numbered) {
-      blocks.push(
-        new Paragraph({
-          numbering: { reference: "numbers", level: 0 },
-          children: runs(numbered[1] ?? ""),
-        }),
-      );
-      i += 1;
       continue;
     }
 
@@ -179,8 +217,8 @@ function sectionHeading(text: string): Paragraph {
   });
 }
 
-function labelledBlock(markdown: string): (Paragraph | Table)[] {
-  const blocks = markdownToBlocks(markdown);
+function labelledBlock(markdown: string, totalWidth = CONTENT_WIDTH): (Paragraph | Table)[] {
+  const blocks = markdownToBlocks(markdown, totalWidth);
   return blocks.length ? blocks : [new Paragraph({ children: [new TextRun("—")] })];
 }
 
@@ -220,6 +258,71 @@ function infoTable(rows: [string, string][]): Table {
           ],
         }),
     ),
+  });
+}
+
+/** Calibri style block for every Word export, headings included. */
+function calibriStyles(baseSize = 22) {
+  return {
+    default: {
+      document: { run: { font: WORD_FONT, size: baseSize } },
+    },
+    paragraphStyles: [
+      {
+        id: "Heading1",
+        name: "Heading 1",
+        basedOn: "Normal",
+        next: "Normal",
+        quickFormat: true,
+        run: { size: 32, bold: true, font: WORD_FONT },
+        paragraph: { spacing: { before: 240, after: 200 }, outlineLevel: 0 },
+      },
+      {
+        id: "Heading2",
+        name: "Heading 2",
+        basedOn: "Normal",
+        next: "Normal",
+        quickFormat: true,
+        run: { size: 26, bold: true, font: WORD_FONT, color: "1F3864" },
+        paragraph: { spacing: { before: 280, after: 140 }, outlineLevel: 1 },
+      },
+      {
+        id: "Heading3",
+        name: "Heading 3",
+        basedOn: "Normal",
+        next: "Normal",
+        quickFormat: true,
+        run: { size: 23, bold: true, font: WORD_FONT },
+        paragraph: { spacing: { before: 200, after: 100 }, outlineLevel: 2 },
+      },
+    ],
+  };
+}
+
+/** Footer carrying "Page N of M", so a printed export can be reassembled. */
+function pageFooter() {
+  return new Footer({
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({ text: "Page ", size: 18, font: WORD_FONT, color: "5C6C80" }),
+          new TextRun({
+            children: [PageNumber.CURRENT],
+            size: 18,
+            font: WORD_FONT,
+            color: "5C6C80",
+          }),
+          new TextRun({ text: " of ", size: 18, font: WORD_FONT, color: "5C6C80" }),
+          new TextRun({
+            children: [PageNumber.TOTAL_PAGES],
+            size: 18,
+            font: WORD_FONT,
+            color: "5C6C80",
+          }),
+        ],
+      }),
+    ],
   });
 }
 
@@ -286,7 +389,6 @@ export async function exportMarkingToWord(data: MarkExport) {
     ...labelledBlock(data.question),
   ];
 
-
   if (data.userAnswer?.trim()) {
     children.push(sectionHeading("Your answer"), ...labelledBlock(data.userAnswer));
   }
@@ -294,38 +396,7 @@ export async function exportMarkingToWord(data: MarkExport) {
   children.push(sectionHeading("Marking output"), ...labelledBlock(data.response));
 
   const doc = new Document({
-    styles: {
-      default: { document: { run: { font: "Times New Roman", size: 22 } } },
-      paragraphStyles: [
-        {
-          id: "Heading1",
-          name: "Heading 1",
-          basedOn: "Normal",
-          next: "Normal",
-          quickFormat: true,
-          run: { size: 32, bold: true, font: "Times New Roman" },
-          paragraph: { spacing: { before: 240, after: 200 }, outlineLevel: 0 },
-        },
-        {
-          id: "Heading2",
-          name: "Heading 2",
-          basedOn: "Normal",
-          next: "Normal",
-          quickFormat: true,
-          run: { size: 26, bold: true, font: "Times New Roman", color: "1F3864" },
-          paragraph: { spacing: { before: 280, after: 140 }, outlineLevel: 1 },
-        },
-        {
-          id: "Heading3",
-          name: "Heading 3",
-          basedOn: "Normal",
-          next: "Normal",
-          quickFormat: true,
-          run: { size: 23, bold: true, font: "Times New Roman" },
-          paragraph: { spacing: { before: 200, after: 100 }, outlineLevel: 2 },
-        },
-      ],
-    },
+    styles: calibriStyles(22),
     numbering: {
       config: [
         {
@@ -362,6 +433,7 @@ export async function exportMarkingToWord(data: MarkExport) {
             margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
           },
         },
+        footers: { default: pageFooter() },
         children,
       },
     ],
@@ -373,7 +445,11 @@ export async function exportMarkingToWord(data: MarkExport) {
   a.href = url;
   a.download = `${fileNameFromQuestion(
     data.question,
-    data.notebook.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "marking",
+    data.notebook
+      .replace(/[^\w\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .toLowerCase() || "marking",
   )}.docx`;
   document.body.appendChild(a);
   a.click();
@@ -382,75 +458,37 @@ export async function exportMarkingToWord(data: MarkExport) {
 }
 
 /**
- * Performance overview export: landscape page, one heading and one table.
- * No header, no footer, nothing else.
+ * Performance overview export: landscape page carrying the whole report —
+ * the topic table, the evidence behind it and the next steps.
  */
 export async function exportInsightsToWord(markdown: string, fileName = "performance-overview") {
   const LANDSCAPE_WIDTH = 15840 - 1440 * 2;
-  const lines = markdown.replace(/\r/g, "").split("\n");
-  const tableLines = lines.filter((l) => l.trim().startsWith("|"));
 
+  // The whole report goes out, not only the grid: the evidence lines and the
+  // "what to do next" section are what a candidate acts on, so dropping them
+  // made the export a scoreboard with no diagnosis.
   const children: (Paragraph | Table)[] = [
     new Paragraph({
       heading: HeadingLevel.HEADING_1,
-      spacing: { after: 200 },
+      spacing: { after: 120 },
       children: [new TextRun({ text: "Performance Overview", bold: true, color: "1F3864" })],
     }),
+    new Paragraph({
+      spacing: { after: 220 },
+      children: [
+        new TextRun({
+          text: "Scores are awarded marks ÷ available marks over the marked attempts in this notebook. Rows marked “Needs review” are excluded from every percentage.",
+          italics: true,
+          size: 18,
+          color: "5C6C80",
+        }),
+      ],
+    }),
+    ...markdownToBlocks(markdown, LANDSCAPE_WIDTH),
   ];
 
-  if (tableLines.length) {
-    const rows = tableLines
-      .map(splitRow)
-      .filter((cells) => !cells.every((c) => /^:?-{2,}:?$/.test(c)));
-    const columns = Math.max(...rows.map((r) => r.length));
-    const w = Math.floor(LANDSCAPE_WIDTH / columns);
-    const widths = Array.from({ length: columns }, (_, i) =>
-      i === columns - 1 ? LANDSCAPE_WIDTH - w * (columns - 1) : w,
-    );
-    children.push(
-      new Table({
-        width: { size: LANDSCAPE_WIDTH, type: WidthType.DXA },
-        columnWidths: widths,
-        rows: rows.map(
-          (cells, rowIndex) =>
-            new TableRow({
-              children: widths.map(
-                (cw, i) =>
-                  new TableCell({
-                    borders,
-                    width: { size: cw, type: WidthType.DXA },
-                    margins: { top: 80, bottom: 80, left: 120, right: 120 },
-                    ...(rowIndex === 0
-                      ? { shading: { fill: "EDF1F7", type: ShadingType.CLEAR, color: "auto" } }
-                      : {}),
-                    children: [
-                      new Paragraph({ children: runs(cells[i] ?? "", { bold: rowIndex === 0 }) }),
-                    ],
-                  }),
-              ),
-            }),
-        ),
-      }),
-    );
-  } else {
-    children.push(...markdownToBlocks(markdown));
-  }
-
   const doc = new Document({
-    styles: {
-      default: { document: { run: { font: "Times New Roman", size: 20 } } },
-      paragraphStyles: [
-        {
-          id: "Heading1",
-          name: "Heading 1",
-          basedOn: "Normal",
-          next: "Normal",
-          quickFormat: true,
-          run: { size: 32, bold: true, font: "Times New Roman" },
-          paragraph: { spacing: { before: 0, after: 200 }, outlineLevel: 0 },
-        },
-      ],
-    },
+    styles: calibriStyles(20),
     sections: [
       {
         properties: {
@@ -459,6 +497,7 @@ export async function exportInsightsToWord(markdown: string, fileName = "perform
             margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
           },
         },
+        footers: { default: pageFooter() },
         children,
       },
     ],
@@ -543,7 +582,8 @@ export async function exportHistoryToWord(data: HistoryExport) {
       new Paragraph({
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 240 },
-        children: [new TextRun({ text: `${index + 1}. ${entry.title}` })],
+        // Short titles only — the full question follows as body text below.
+        children: [new TextRun({ text: `${index + 1}. ${conciseTitle(entry.title)}` })],
       }),
     );
     if (entry.date) {
@@ -558,38 +598,7 @@ export async function exportHistoryToWord(data: HistoryExport) {
   });
 
   const doc = new Document({
-    styles: {
-      default: { document: { run: { font: "Times New Roman", size: 22 } } },
-      paragraphStyles: [
-        {
-          id: "Heading1",
-          name: "Heading 1",
-          basedOn: "Normal",
-          next: "Normal",
-          quickFormat: true,
-          run: { size: 32, bold: true, font: "Times New Roman" },
-          paragraph: { spacing: { before: 240, after: 200 }, outlineLevel: 0 },
-        },
-        {
-          id: "Heading2",
-          name: "Heading 2",
-          basedOn: "Normal",
-          next: "Normal",
-          quickFormat: true,
-          run: { size: 26, bold: true, font: "Times New Roman", color: "1F3864" },
-          paragraph: { spacing: { before: 280, after: 140 }, outlineLevel: 1 },
-        },
-        {
-          id: "Heading3",
-          name: "Heading 3",
-          basedOn: "Normal",
-          next: "Normal",
-          quickFormat: true,
-          run: { size: 23, bold: true, font: "Times New Roman" },
-          paragraph: { spacing: { before: 200, after: 100 }, outlineLevel: 2 },
-        },
-      ],
-    },
+    styles: calibriStyles(22),
     numbering: {
       config: [
         {
@@ -626,6 +635,7 @@ export async function exportHistoryToWord(data: HistoryExport) {
             margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
           },
         },
+        footers: { default: pageFooter() },
         children,
       },
     ],

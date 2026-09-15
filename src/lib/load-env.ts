@@ -19,11 +19,14 @@ import { resolve } from "node:path";
 const AI_KEYS = [
   "GEMINI_API_KEY",
   "GOOGLE_API_KEY",
+  "GEMINI_MODEL",
   "GROQ_API_KEY",
   "GROK_API_KEY",
   "XAI_API_KEY",
   "LOVABLE_API_KEY",
   "STUDY_REASONING_EFFORT",
+  "ENABLE_PUBLIC_ICAP",
+  "ENABLE_PAID_FALLBACK",
 ] as const;
 
 let loaded = false;
@@ -95,4 +98,52 @@ export function readServerKey(...names: string[]): string | undefined {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return undefined;
+}
+
+/**
+ * The model the deployment wants to lead with (`GEMINI_MODEL` in `.env`).
+ * Every Gemini chain below it still exists as a fallback, so a wrong or
+ * retired id degrades to the standard chain instead of failing the request.
+ */
+export function preferredGeminiModel(): string | undefined {
+  const value = readServerKey("GEMINI_MODEL");
+  if (!value) return undefined;
+  // Accept both the bare id and the gateway-prefixed form.
+  return value.replace(/^google\//, "").trim() || undefined;
+}
+
+/** Put the preferred model first, without duplicating it later in the chain. */
+export function withPreferredModel(
+  chain: readonly string[],
+  preferred: string | undefined,
+  prefix = "",
+): string[] {
+  if (!preferred) return [...chain];
+  const wanted = `${prefix}${preferred}`;
+  return [wanted, ...chain.filter((model) => model !== preferred && model !== wanted)];
+}
+
+/** Tri-state env flag: only an explicit truthy value enables it. */
+export function readServerFlag(name: string): boolean {
+  const value = readServerKey(name)?.toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+/**
+ * Anonymous access to `/api/public/icap`. OFF by default: an unauthenticated
+ * endpoint that spends the project's AI allowance is the one surface an outsider
+ * can drain, so it stays closed until the deployment opts in explicitly with
+ * `ENABLE_PUBLIC_ICAP=true`. Signed-in notebook traffic never needs this flag.
+ */
+export function anonymousAiAllowed(): boolean {
+  return readServerFlag("ENABLE_PUBLIC_ICAP");
+}
+
+/**
+ * Whether a provider outage may silently move a request onto a metered
+ * endpoint (auto top-up / on-demand billing). OFF by default: quota errors must
+ * reach the user as a quota error, never as an unexpected bill.
+ */
+export function paidFallbackAllowed(): boolean {
+  return readServerFlag("ENABLE_PAID_FALLBACK");
 }

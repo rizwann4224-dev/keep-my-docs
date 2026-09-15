@@ -1,7 +1,7 @@
 // Global upload store. Uploads keep running when the user switches tabs or
 // notebooks — only leaving the page can interrupt them (and we warn first).
 import { supabase } from "@/integrations/supabase/client";
-import { extractText, type OcrFn } from "@/lib/extract-text";
+import { extractDocument, type ExtractionResult, type OcrFn } from "@/lib/extract-text";
 import { uploadWithProgress, formatSpeed } from "@/lib/upload";
 
 export type UploadJob = {
@@ -13,6 +13,8 @@ export type UploadJob = {
   speed: string;
   stage: string;
   status: "active" | "done" | "error";
+  /** Pages that could not be read — the upload is never called "done" while these exist. */
+  unreadablePages?: number[];
 };
 
 let jobs: UploadJob[] = [];
@@ -50,12 +52,23 @@ function notifyDocuments(subjectId: string) {
   }
 }
 
-async function runOne(
-  job: UploadJob,
-  file: File,
-  userId: string,
-  ocr: OcrFn,
-): Promise<void> {
+/**
+ * True when a stored document still carries unreadable-page markers, so the
+ * source list can show "Needs review" instead of "Indexed".
+ */
+export function unreadablePagesIn(text: string | null | undefined): number[] {
+  if (!text) return [];
+  const pages: number[] = [];
+  const blocks = text.split(/^\[Page (\d+)\]$/m);
+  for (let i = 1; i < blocks.length - 1; i += 2) {
+    const page = Number(blocks[i]);
+    const body = blocks[i + 1] ?? "";
+    if (/\[unreadable/i.test(body) || /could not be read/i.test(body)) pages.push(page);
+  }
+  return pages;
+}
+
+async function runOne(job: UploadJob, file: File, userId: string, ocr: OcrFn): Promise<void> {
   const safeName = file.name.replace(/[^\w.\- ]+/g, "_");
   const path = `${userId}/${crypto.randomUUID()}-${safeName}`;
 
@@ -66,19 +79,53 @@ async function runOne(
       stage: p.percent >= 100 ? "Reading text…" : "Uploading",
     }),
   );
-  const extractTask = extractText(file, ocr, (message) => patch(job.id, { stage: message }));
+  const extractTask = extractDocument(file, ocr, (message) => patch(job.id, { stage: message }));
 
-  let text = "";
-  try {
-    [, text] = await Promise.all([uploadTask, extractTask]);
-  } catch (error) {
-    await extractTask.catch(() => "");
+  const [uploadOutcome, extractOutcome] = await Promise.allSettled([uploadTask, extractTask]);
+
+  if (uploadOutcome.status === "rejected") {
+    // Nothing reached storage, so nothing is recorded anywhere.
     patch(job.id, {
       status: "error",
-      stage: error instanceof Error ? error.message : "Upload failed",
+      stage: uploadOutcome.reason instanceof Error ? uploadOutcome.reason.message : "Upload failed",
     });
     return;
   }
+
+  if (extractOutcome.status === "rejected") {
+    // The file itself is safely stored, but the read failed: record the document
+    // with no text so Re-index / Review text can fix it, and say so plainly.
+    const message =
+      extractOutcome.reason instanceof Error
+        ? extractOutcome.reason.message
+        : "Could not read text from this file";
+    const { error: insertError } = await supabase.from("documents").insert({
+      user_id: userId,
+      subject_id: job.subjectId,
+      name: file.name,
+      storage_path: path,
+      mime_type: file.type || null,
+      size_bytes: file.size,
+      extracted_text: null,
+    });
+    if (insertError) {
+      await supabase.storage.from("documents").remove([path]);
+      patch(job.id, { status: "error", stage: "Could not save this file" });
+      return;
+    }
+    notifyDocuments(job.subjectId);
+    patch(job.id, {
+      status: "error",
+      percent: 100,
+      stage: `File stored, but reading it failed — ${message}`,
+    });
+    return;
+  }
+
+  const result: ExtractionResult = extractOutcome.value;
+
+  const text = result.text.trim();
+  const failed = result.failedPages;
 
   const { error: insertError } = await supabase.from("documents").insert({
     user_id: userId,
@@ -96,21 +143,51 @@ async function runOne(
     return;
   }
 
+  notifyDocuments(job.subjectId);
+
+  if (failed.length > 0) {
+    // Partial read: saved so the pages that WERE read stay searchable, but the
+    // job reports failure and names the pages, so it is never mistaken for a
+    // complete index. "Review text" lets the user fix the marked pages by hand.
+    patch(job.id, {
+      status: "error",
+      percent: 100,
+      speed: "",
+      unreadablePages: failed.map((f) => f.page),
+      stage: `Page${failed.length === 1 ? "" : "s"} ${failed
+        .map((f) => f.page)
+        .join(", ")} unreadable — saved as marked. Open Review text to fix.`,
+    });
+    return;
+  }
+
+  if (!text) {
+    patch(job.id, {
+      status: "error",
+      percent: 100,
+      speed: "",
+      stage: "No readable text found — nothing was indexed. Open Review text to paste it in.",
+    });
+    return;
+  }
+
   patch(job.id, {
     status: "done",
     percent: 100,
     speed: "",
-    stage: text ? "Indexed" : "Stored — no readable text found",
+    stage: result.truncated
+      ? `Indexed (truncated at the size limit)`
+      : `Indexed${
+          result.ocrPages.length
+            ? ` — ${result.ocrPages.length} scanned page${
+                result.ocrPages.length === 1 ? "" : "s"
+              } read by OCR`
+            : ""
+        }`,
   });
-  notifyDocuments(job.subjectId);
 }
 
-export function startUploads(
-  subjectId: string,
-  userId: string,
-  files: File[],
-  ocr: OcrFn,
-) {
+export function startUploads(subjectId: string, userId: string, files: File[], ocr: OcrFn) {
   if (files.length === 0) return;
   const newJobs: UploadJob[] = files.map((file) => ({
     id: crypto.randomUUID(),

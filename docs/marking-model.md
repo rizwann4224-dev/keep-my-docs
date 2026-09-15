@@ -143,9 +143,30 @@ sections, or the notebook's documents/lessons always re-marks live.
 
 ## Guard tests
 
-`tests/marking-prompt.test.ts` checks that all of the above survive future
-prompt edits:
+`npm test` runs the whole offline suite (no key, no network):
 
 ```
-npx -y tsx tests/marking-prompt.test.ts
+npm test
+```
+
+- `tests/marking-prompt.test.ts` — the fairness, evidence and calibration rules
+  above survive future prompt edits, at every severity.
+- `tests/marking-determinism.test.ts` + `tests/evaluator.test.ts` — the same
+  script re-marked lands on the same total.
+- `tests/performance-scores.test.ts` — the charts are weighted (`sum awarded ÷
+  sum available`), keep real zeros, drop rows with no recorded mark, refuse a
+  duplicate `attempt + part`, and reject impossible totals (`awarded >
+  available`, `available <= 0`) instead of drawing them.
+- `tests/stream-safety.test.ts` — an interrupted or quota-failed run is never
+  saved as a verdict, and no paid fallback is implied by its message.
+- `tests/export-format.test.ts` — the PDF and Word writers keep `(b)`, `ii.`,
+  `1.` labels verbatim and size table columns to their content.
+- `tests/behaviour-eval.test.ts` — the cases in `tests/eval/behaviour-cases.json`
+  (valid alternative credited, duplicate points counted once, compulsory element
+  missing, unverifiable alternative pending review, a new subject with no past
+  papers, a question paper that leaks nothing, a missing topic name costing
+  nothing). The same file carries the live-model half of each case:
+
+```
+RUN_LIVE_EVAL=1 GEMINI_API_KEY=… npm test
 ```

@@ -1,15 +1,24 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import * as uploadJobs from "@/lib/upload-jobs";
-import { extractText } from "@/lib/extract-text";
+import { extractDocument, PAGE_MARKER } from "@/lib/extract-text";
 import { Progress } from "@/components/ui/progress";
 import { transcribePages } from "@/lib/study.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export type DocumentRow = {
   id: string;
@@ -34,6 +43,18 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
   const [dragging, setDragging] = useState(false);
   const [search, setSearch] = useState("");
   const [reindexing, setReindexing] = useState<Record<string, string>>({});
+  const [reviewing, setReviewing] = useState<DocumentRow | null>(null);
+  const [reviewText, setReviewText] = useState("");
+  const [reviewSaving, setReviewSaving] = useState(false);
+
+  const runOcr = useMemo(
+    () =>
+      async (images: string[]): Promise<string> => {
+        const result = await ocrCall({ data: { images } });
+        return result.text;
+      },
+    [ocrCall],
+  );
 
   useSyncExternalStore(uploadJobs.subscribe, uploadJobs.getJobs, uploadJobs.getJobs);
   const uploads = uploadJobs.jobsFor(subjectId);
@@ -80,14 +101,13 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
   function startUpload(files: FileList | File[]) {
     const list = Array.from(files);
     if (list.length === 0) return;
-    uploadJobs.startUploads(subjectId, userId, list, async (images) =>
-      (await ocrCall({ data: { images } })).text,
-    );
+    uploadJobs.startUploads(subjectId, userId, list, runOcr);
   }
 
-  /** Re-extract a stored document in place — useful after indexing fixes or when a
-   *  long PDF was truncated. Downloads the file, runs the same extract + OCR path as
-   *  a fresh upload, and overwrites the stored text. */
+  /** Re-extract a stored document in place — useful after indexing fixes, when a
+   *  long PDF was truncated, or when a page came back unreadable. Downloads the
+   *  file, runs the same extract + OCR path as a fresh upload, and overwrites only
+   *  `extracted_text`; the uploaded file in storage is never touched. */
   async function reindex(doc: DocumentRow) {
     setReindexing((m) => ({ ...m, [doc.id]: "Fetching file…" }));
     try {
@@ -103,19 +123,31 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
         type: doc.mime_type || blob.type || "application/octet-stream",
       });
 
-      const text = await extractText(
-        file,
-        async (images) => (await ocrCall({ data: { images } })).text,
-        (message) => setReindexing((m) => ({ ...m, [doc.id]: message })),
+      const result = await extractDocument(file, runOcr, (message) =>
+        setReindexing((m) => ({ ...m, [doc.id]: message })),
       );
 
       const { error: updateError } = await supabase
         .from("documents")
-        .update({ extracted_text: text || null })
+        .update({ extracted_text: result.text || null })
         .eq("id", doc.id);
       if (updateError) throw updateError;
 
-      toast.success(text ? "Re-indexed with full text" : "No readable text found");
+      if (result.failedPages.length > 0) {
+        toast.error(
+          `Page${result.failedPages.length === 1 ? "" : "s"} ${result.failedPages
+            .map((f) => f.page)
+            .join(", ")} could not be read — saved as marked. Use Review text to fix it.`,
+        );
+      } else if (!result.text) {
+        toast.error("No readable text found — nothing was indexed.");
+      } else {
+        toast.success(
+          result.truncated
+            ? "Re-indexed (truncated at the size limit)"
+            : "Re-indexed with full text",
+        );
+      }
       queryClient.invalidateQueries({ queryKey: ["documents", subjectId] });
       queryClient.invalidateQueries({ queryKey: ["subject-doc-counts"] });
     } catch (e) {
@@ -140,9 +172,37 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
 
+  function openReview(doc: DocumentRow) {
+    setReviewing(doc);
+    setReviewText(doc.extracted_text ?? "");
+  }
+
+  /** Saves corrections to `documents.extracted_text` only — the uploaded file,
+   *  its storage object and its name are left exactly as they were. */
+  async function saveReview() {
+    if (!reviewing) return;
+    setReviewSaving(true);
+    try {
+      const { error } = await supabase
+        .from("documents")
+        .update({ extracted_text: reviewText.trim() || null })
+        .eq("id", reviewing.id);
+      if (error) throw error;
+      toast.success("Extracted text saved — the original file is unchanged");
+      queryClient.invalidateQueries({ queryKey: ["documents", subjectId] });
+      setReviewing(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save the text");
+    } finally {
+      setReviewSaving(false);
+    }
+  }
+
   const filtered = documents.filter((d) =>
     d.name.toLowerCase().includes(search.trim().toLowerCase()),
   );
+
+  const reviewPages = reviewing ? uploadJobs.unreadablePagesIn(reviewing.extracted_text) : [];
 
   return (
     <div className="space-y-6">
@@ -163,8 +223,9 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
       >
         <h2 className="text-base font-semibold text-foreground">Add sources</h2>
         <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
-          PDF, DOCX, TXT, Markdown and images. Scanned pages are read with OCR automatically. No
-          size limit — uploads keep running while you use the rest of the notebook.
+          PDF, DOCX, TXT, Markdown and images. Scanned pages are rendered at 3× and read one page at
+          a time, so every page keeps its own [Page N] marker. No size limit and no page cutoff —
+          uploads keep running while you use the rest of the notebook.
         </p>
         <div className="mt-4">
           <Button onClick={() => inputRef.current?.click()}>
@@ -195,12 +256,18 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
                 </div>
                 <Progress value={u.percent} className="mt-2 h-1.5" />
                 <p
-                  className={`mt-1.5 truncate text-xs ${
+                  className={`mt-1.5 text-xs ${
                     u.status === "error" ? "text-destructive" : "text-muted-foreground"
                   }`}
                 >
                   {u.stage} · {formatSize(u.size)}
                 </p>
+                {u.unreadablePages?.length ? (
+                  <p className="mt-1 text-xs text-destructive">
+                    Unreadable page{u.unreadablePages.length === 1 ? "" : "s"}:{" "}
+                    {u.unreadablePages.join(", ")} — marked as [unreadable], never guessed.
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -238,56 +305,110 @@ export function DocumentsPanel({ subjectId, userId }: { subjectId: string; userI
           </p>
         ) : (
           <ul className="divide-y divide-border">
-            {filtered.map((doc) => (
-              <li key={doc.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">{doc.name}</p>
-                  <p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                    {formatSize(doc.size_bytes)} ·{" "}
-                    {new Date(doc.created_at).toLocaleDateString(undefined, {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
-                    })}
-                    {doc.extracted_text ? (
-                      <Badge variant="secondary">Indexed</Badge>
-                    ) : (
-                      <Badge variant="outline">No text</Badge>
+            {filtered.map((doc) => {
+              const unreadable = uploadJobs.unreadablePagesIn(doc.extracted_text);
+              const hasText = Boolean(doc.extracted_text?.trim());
+              return (
+                <li key={doc.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{doc.name}</p>
+                    <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      {formatSize(doc.size_bytes)} ·{" "}
+                      {new Date(doc.created_at).toLocaleDateString(undefined, {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                      {unreadable.length > 0 ? (
+                        <Badge variant="destructive">
+                          {unreadable.length} unreadable page{unreadable.length === 1 ? "" : "s"}
+                        </Badge>
+                      ) : hasText ? (
+                        <Badge variant="secondary">Indexed</Badge>
+                      ) : (
+                        <Badge variant="outline">No text</Badge>
+                      )}
+                    </p>
+                    {reindexing[doc.id] && (
+                      <p className="mt-0.5 truncate text-xs text-primary">{reindexing[doc.id]}</p>
                     )}
-                  </p>
-                  {reindexing[doc.id] && (
-                    <p className="mt-0.5 truncate text-xs text-primary">{reindexing[doc.id]}</p>
-                  )}
-                </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => void openDocument(doc, false)}>
-                    Preview
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={Boolean(reindexing[doc.id])}
-                    onClick={() => void reindex(doc)}
-                  >
-                    {reindexing[doc.id] ? "Re-indexing…" : "Re-index"}
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => void openDocument(doc, true)}>
-                    Download
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive"
-                    onClick={() => remove.mutate(doc)}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </li>
-            ))}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => void openDocument(doc, false)}>
+                      Preview
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => openReview(doc)}>
+                      Review text
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={Boolean(reindexing[doc.id])}
+                      onClick={() => void reindex(doc)}
+                    >
+                      {reindexing[doc.id] ? "Re-indexing…" : "Re-index"}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => void openDocument(doc, true)}>
+                      Download
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive"
+                      onClick={() => remove.mutate(doc)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
+
+      <Dialog open={reviewing !== null} onOpenChange={(open) => !open && setReviewing(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Review extracted text</DialogTitle>
+            <DialogDescription>
+              {reviewing?.name} — fix anything the extraction got wrong. Saving writes only the
+              extracted text used for search and marking; the uploaded file itself is never
+              modified. Keep each page under its own {PAGE_MARKER(1)} marker so quotes stay
+              traceable.
+            </DialogDescription>
+          </DialogHeader>
+
+          {reviewPages.length > 0 && (
+            <p className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+              Page{reviewPages.length === 1 ? "" : "s"} {reviewPages.join(", ")} were marked
+              unreadable. Read them off the preview above and type them here — never estimate a
+              figure you cannot see.
+            </p>
+          )}
+
+          <Textarea
+            value={reviewText}
+            onChange={(e) => setReviewText(e.target.value)}
+            className="min-h-[420px] font-mono text-xs"
+            placeholder="No text has been extracted from this file yet. Paste the text here to make it searchable."
+          />
+
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>{reviewText.length.toLocaleString()} characters</span>
+            <span>Original file untouched · storage path unchanged</span>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setReviewing(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveReview()} disabled={reviewSaving}>
+              {reviewSaving ? "Saving…" : "Save text"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
