@@ -61,6 +61,19 @@ for (const rigour of ["moderate", "strict", "hard"] as const) {
     `${rigour}: marks section ends with a machine-readable total line`,
     prompt.includes("Marks awarded: <X> / <Y>"),
   );
+  check(
+    `${rigour}: feedback omits alternative and pending-review sections`,
+    !prompt.includes("**Valid alternatives credited**") && !prompt.includes("**Pending review**"),
+  );
+  check(
+    `${rigour}: errors and omissions show exact deductions`,
+    prompt.includes("Every error must show its exact deduction") &&
+      prompt.includes("Every omission must show its exact deduction"),
+  );
+  check(
+    `${rigour}: credited points are concise`,
+    prompt.includes("Do NOT reproduce, quote or paraphrase all of the candidate's wording"),
+  );
 }
 
 // Strictness ordering must stay: moderate > strict > hard expectations.
