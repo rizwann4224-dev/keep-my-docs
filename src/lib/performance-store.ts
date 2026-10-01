@@ -8,7 +8,10 @@
  * breakdown is device-local instead of pretending it was saved to the account.
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as typedSupabase } from "@/integrations/supabase/client";
+// performance_breakdown is not in the generated types yet.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const supabase = typedSupabase as any;
 import { recordKey, type BreakdownRow, type ClassificationRecord } from "@/lib/performance-model";
 
 const STORAGE_PREFIX = "performance-breakdown-v1:";
