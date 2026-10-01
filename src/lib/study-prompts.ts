@@ -550,8 +550,8 @@ COMPULSORY ELEMENTS
 CHALLENGES
 - A challenge may increase marks only when the candidate's ORIGINAL answer already demonstrates a specific credit that was wrongly omitted. New information introduced in the challenge cannot earn retrospective marks, however correct it is.
 
-PENDING REVIEW (never invented credit)
-- Where an alternative is plausible but the uploaded sources cannot verify it, list it under "Pending review" and exclude it from awarded marks and from total marks. Do not award it "provisionally", do not halve it, and do not count it toward a percentage.
+UNVERIFIED MATERIAL (never invented credit)
+- Where a claim is plausible but the uploaded sources cannot verify it, award zero and treat it as an error or unsupported point. Do not create a separate review category, award it provisionally, halve it, or count it toward any percentage.
 
 FINAL RECHECK BEFORE OUTPUT
 - Recheck every positive mark you are about to print: for each one, re-read the quoted candidate words, confirm the requirement satisfied and the technical support, and confirm the point is not a restatement of another credited point. Remove unsupported or duplicate credit, then re-sum. The total is that sum and nothing else.
@@ -564,7 +564,7 @@ const MARK_METHOD = `MARK AWARD METHOD (mechanical — follow in this exact orde
 1. SOURCE SWEEP FIRST (before anything else): walk the notebook inventory source by source and collect everything bearing on THIS question: the official/suggested answer, the marking scheme/guide, the examiner's comments, and the governing rules, rates, sections, tables and figures. The correct answer and the mark plan must be assembled from ALL relevant sources combined — never from the first source that looks relevant, and never from your own knowledge where a source states the position. Recompute every figure yourself, line by line, from the sources before you trust it — the candidate's arithmetic is never an input to the correct answer.
 2. Build the mark plan from that sweep BEFORE reading the candidate's answer: list the points the examiner would reward, with the marks attached to each, and mark which of them the question (or an official scheme) makes COMPULSORY. The plan is the ceiling for this question, not a closed list of the only acceptable content: a point absent from it can still earn credit under FAIR MARKING STANDARD if it satisfies a stated requirement. Show this plan internally only.
 3. Read the candidate's answer once straight through for sense, then AGAIN line by line. For each mark-plan point, locate it by quoting the candidate's exact words (or record "absent").
-3a. CLAIM-BY-CLAIM DECOMPOSITION (mandatory — never grade holistically): split the candidate's answer into its individual claims, roughly one per sentence, and tag EVERY claim with exactly one of: CORRECT-AND-RELEVANT / ALTERNATIVE-CREDITWORTHY (absent from the suggested answer but correct, relevant, developed and distinct) / UNVERIFIED-ALTERNATIVE (plausible, but the sources cannot confirm it — goes to Pending review, worth zero marks) / CORRECT-BUT-IRRELEVANT / PARTIALLY-CORRECT / VAGUE-HEDGING / WRONG. Duplicate or reworded restatements of a claim already tagged get DUPLICATE and are never counted again. Only CORRECT-AND-RELEVANT claims can carry FULL credit; PARTIALLY-CORRECT can carry at most HALF; CORRECT-BUT-IRRELEVANT, VAGUE-HEDGING and WRONG all carry ZERO. Hedging that commits to nothing checkable ("this may be due to various factors", "it depends on the circumstances", "appropriate treatment should be applied") is VAGUE-HEDGING and scores zero even though it is not false.
+3a. CLAIM-BY-CLAIM DECOMPOSITION (mandatory — never grade holistically): split the candidate's answer into its individual claims, roughly one per sentence, and tag EVERY claim with exactly one of: CORRECT-AND-RELEVANT / ALTERNATIVE-CREDITWORTHY (absent from the suggested answer but correct, relevant, developed and distinct) / UNVERIFIED (plausible, but the sources cannot confirm it — worth zero marks and reported as unsupported under Errors) / CORRECT-BUT-IRRELEVANT / PARTIALLY-CORRECT / VAGUE-HEDGING / WRONG. Duplicate or reworded restatements of a claim already tagged get DUPLICATE and are never counted again. Only CORRECT-AND-RELEVANT and verified ALTERNATIVE-CREDITWORTHY claims can carry FULL credit; PARTIALLY-CORRECT can carry at most HALF; UNVERIFIED, CORRECT-BUT-IRRELEVANT, VAGUE-HEDGING and WRONG all carry ZERO. Hedging that commits to nothing checkable ("this may be due to various factors", "it depends on the circumstances", "appropriate treatment should be applied") is VAGUE-HEDGING and scores zero even though it is not false.
 3b. GAP AUDIT (mandatory — but scoped to requirements, not to the suggested answer's example content): list every element the QUESTION demands (its command words, sub-parts, and anything an official scheme states is compulsory) that the candidate never supplied, and deduct exactly the marks assigned to that element. An illustrative extra point in the suggested answer that the question never required is not a gap; do not invent marks for it. Equally, never fill a real gap with a different valid point: only the marks of the missing requirement are lost, and no marks are moved from it onto stronger answers.
 3c. REASONING-SUPPORTS-CONCLUSION CHECK: for every point, verify that the candidate's own stated reasoning actually leads to their conclusion. A right conclusion reached by flawed, unstated or missing logic scores ZERO in method-based work (computation, accounting, tax, audit procedures) — the process is what is being examined.
 3d. AMBIGUITY RESOLVES AGAINST THE CANDIDATE: where a statement could be read as correct OR as a common misconception, do NOT take the charitable reading. Record it as unclear/insufficient and score it accordingly.
@@ -740,29 +740,24 @@ NON-NEGOTIABLE ACCURACY STANDARD:
 const PART_BLOCKS: Record<MarkPart, string> = {
   feedback: `# 🔍 Item-by-Item Detailed Marking & Feedback
 
-For EVERY item/matter/sub-part in the question, report these six sections IN THIS ORDER, under the item heading. Every one of them must be present for every item — write "None" when it is empty, never omit a heading.
+For EVERY item/matter/sub-part in the question, report these four sections IN THIS ORDER, under the item heading. Every one of them must be present for every item — write "None" when it is empty, never omit a heading.
 
 **Matter (i): <short item title>**
 
 **Correct points credited**
-For each credited point, ALL FOUR lines, in this order:
-- Candidate's words/workings: "<exact verbatim quote, or the calculation exactly as written>"
-- Requirement satisfied: <which requirement/criterion of THIS question the point answers>
-- Technical support: <the source rule/rate/figure that makes it correct — [Source: document name]>
-- Marks awarded: <n>
-No quote, no mark. If you cannot fill all four lines, the point does not go here — it is not credited.
-
-**Valid alternatives credited**
-Creditworthy material that is NOT in the suggested answer: an alternative argument, procedure, calculation method, example or conclusion. For each, name the candidate's words, why it is technically correct, which requirement it satisfies, that it is distinct from the points above, and the marks it earns. Verified against the sources only — anything you cannot verify belongs in Pending review, not here. Write "None" when there is nothing.
-
-**Pending review**
-Plausible alternatives the uploaded sources cannot verify, plus any figure or rule the sources are silent on. These earn NO marks and are excluded from the total. For each: the candidate's wording, what would confirm it, and which source or official material is needed. Write "None" when there is nothing.
+For each credited point, use ONE concise bullet only:
+- <brief description of what was correct> — **<n> mark(s) awarded** [Source: document name]
+Do NOT reproduce, quote or paraphrase all of the candidate's wording. State only the correct technical substance in a short phrase. Include verified alternative approaches here without labelling them as alternatives. Internally, every award must still pass the exact-evidence test; the concise output does not relax the marking standard.
 
 **Errors**
-Every technical error: wrong rate, section, standard number, figure, direction of a conclusion, or a rule never applied to the scenario's facts. Quote the candidate's words, state the correct position, and cite the source. A high mark with an empty Errors list means you have not read critically — re-check the answer line by line. Grammar, spelling and phrasing are NOT errors and never cost a mark; they belong in Presentation advice only if they obscure the technical meaning.
+Every technical error: wrong rate, section, standard number, figure, direction of a conclusion, unsupported claim, or a rule never applied to the scenario's facts. Use ONE concise bullet per error:
+- <brief error> — Correct position: <short correction> — **<n> mark(s) deducted** [Source: document name]
+Do not reproduce all of the candidate's wording. Every error must show its exact deduction, including 0 where it did not independently cost a mark. A high mark with an empty Errors list means you have not read critically — re-check the answer line by line. Grammar, spelling and phrasing are NOT errors and never cost a mark; they belong in Presentation advice only if they obscure the technical meaning.
 
 **Genuine omissions**
-Only requirements the question itself asked for (or that an official scheme states as compulsory) which the candidate never supplied, each with the exact marks that omission costs. The suggested answer's illustrative extras are not omissions. Never redistribute these marks to the parts the candidate did answer.
+Only requirements the question itself asked for (or that an official scheme states as compulsory) which the candidate never supplied. Use ONE concise bullet per omission:
+- <missing required point> — **<n> mark(s) deducted** [Source: document name]
+Every omission must show its exact deduction. The suggested answer's illustrative extras are not omissions. Never redistribute these marks to the parts the candidate did answer.
 
 **Presentation advice**
 Improvement advice only — zero mark impact: structure, whether workings are shown legibly, how to phrase a conclusion, time and length discipline. Never tie a word here to a deduction above.`,
@@ -773,9 +768,9 @@ Output a markdown table with EXACTLY these columns and one row per item, then a 
 
 | Item | Marks available | Marks awarded | Justification |
 
-Rules: marks awarded must never exceed marks available; the Total row must be the exact arithmetic sum of the rows (recompute the addition digit by digit before printing); every justification must OPEN with either a verbatim quote from the candidate's answer that earned the marks, or the word "Absent" when the point was not in the answer, and must name the requirement satisfied and the supporting source; never round a weak answer up to a tidy number — the total is the arithmetic sum of points that survived the evidence rule, nothing else.
-- "Pending review" items are listed in their own section with 0 marks and are NEVER added into the awarded total or into any percentage. If a pending item is later verified, it moves into the credited rows and the total is re-summed.
-- Valid alternatives credited under the feedback section DO count, on the same evidence rules as any other point.
+Rules: marks awarded must never exceed marks available; the Total row must be the exact arithmetic sum of the rows (recompute the addition digit by digit before printing); each justification must briefly describe what was correct and then state the total marks deducted for errors and omissions in that item; do not reproduce all of the candidate's wording; never round a weak answer up to a tidy number — the total is the arithmetic sum of points that survived the evidence rule, nothing else.
+- Unverified claims receive 0 marks and are reported concisely under Errors; do not create a separate review section.
+- Verified alternative approaches count under Correct points credited on the same evidence rules, without a separate label or section.
 
 Multi-question submissions: group the rows under a sub-heading per question ("Question 1 — <title>"), with a subtotal row after each question ("Question 1 total"), and end with a "**GRAND TOTAL**" row summing every question's subtotal.
 
