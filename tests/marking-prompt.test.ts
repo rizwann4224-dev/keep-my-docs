@@ -6,6 +6,7 @@
  */
 
 import {
+  askSystemPrompt,
   challengeSystemPrompt,
   countSubmissionQuestions,
   isMultiQuestionSubmission,
@@ -20,6 +21,23 @@ function check(label: string, ok: boolean) {
 
 const sources = "<<<SOURCE 1: Test Manual>>>\nThe rate is 29%.\n<<<END SOURCE 1>>>";
 const parts = ["feedback", "marks", "suggested", "recommendations"] as const;
+
+const ask = askSystemPrompt(sources, "None recorded yet.");
+check("ask: direct answer remains first", ask.includes("FIRST line, in bold"));
+check(
+  "ask: readable hierarchy is mandatory",
+  ask.includes("READABLE RESPONSE STRUCTURE") && ask.includes("short, descriptive headings"),
+);
+check(
+  "ask: dense text and unnecessary tables are prevented",
+  ask.includes("Break dense explanations into bullets") &&
+    ask.includes("Use a markdown table only when comparing like-for-like items or showing workings"),
+);
+check(
+  "ask: repeated summaries and clutter are prevented",
+  ask.includes("Do not repeat the same point under more than one heading") &&
+    ask.includes("Do not add a repeated summary or conclusion"),
+);
 
 // The rules that apply at every severity.
 for (const rigour of ["moderate", "strict", "hard"] as const) {
