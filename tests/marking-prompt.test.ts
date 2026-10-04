@@ -89,6 +89,20 @@ for (const rigour of ["moderate", "strict", "hard"] as const) {
       prompt.includes("Every omission must show its exact deduction"),
   );
   check(
+    `${rigour}: official answer is the closed benchmark`,
+    prompt.includes("THE OFFICIAL ANSWER IS THE BENCHMARK") &&
+      prompt.includes("could also be an acceptable answer"),
+  );
+  check(
+    `${rigour}: every line gets a verdict against the answer`,
+    prompt.includes("LINE-BY-LINE VERDICT") && prompt.includes("Doubt always resolves to zero"),
+  );
+  check(
+    `${rigour}: alternatives need explicit source permission`,
+    prompt.includes("EXPLICITLY state it is acceptable") && prompt.includes("NOT-IN-ANSWER"),
+  );
+  check(`${rigour}: match-rate ceiling caps the total`, prompt.includes("MATCH-RATE CEILING"));
+  check(
     `${rigour}: credited points are concise`,
     prompt.includes("Do NOT reproduce, quote or paraphrase all of the candidate's wording"),
   );
