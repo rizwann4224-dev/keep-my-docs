@@ -538,21 +538,33 @@ const EXAM_DIFFICULTY_BLOCKS: Record<ExamDifficulty, string> = {
  * much development a point needs, never whether a fully correct answer can
  * reach full marks.
  */
-export const FAIR_MARKING_STANDARD = `FAIR MARKING WITH ANTI-INFLATION CONTROL (the governing rules for every mark in this report — they override any checklist habit):
+export const FAIR_MARKING_STANDARD = `ANSWER-MATCHED MARKING WITH ANTI-INFLATION CONTROL (the governing rules for every mark in this report — they override any habit of generosity):
 
-SCOPE OF THE SUGGESTED ANSWER
-- Suggested answers are examples of creditworthy answers, not an exhaustive checklist, unless an official marking scheme explicitly says an element is compulsory. Never withhold a mark merely because the candidate's wording, order or example differs from the suggested answer, and never award a mark merely because it matches.
+THE OFFICIAL ANSWER IS THE BENCHMARK (when one exists)
+- When the sources contain the official/suggested answer, marking scheme or examiner's comments for THIS question, that material is the CLOSED mark plan. A candidate line earns marks ONLY when it makes the SAME technical point as a specific point of that answer — same issue, same treatment, same figure/rate/reference and same conclusion in substance. Different wording of the same point is fine; a different point is not.
+- A candidate line that does NOT match a point of the official answer scores ZERO, even when it sounds sensible, is generally true, or "could also be an acceptable answer". "It could be correct" is not evidence. Do not award, halve or provisionally credit it.
+- A candidate line that CONTRADICTS the official answer (different treatment, conclusion, figure, rate or reference) is WRONG: zero, and it is listed under Errors with the official position.
+- Matching is judged point by point: a line that matches only part of an official point (e.g. the rule but not the application, or the issue but not the conclusion) earns only the share of that point's marks it actually covers, under the severity's CREDIT SCALE.
+- Never award a mark merely because the candidate's words resemble the official answer: the matched point must also be applied to THIS scenario where the official answer applies it.
+
+WHEN NO OFFICIAL ANSWER EXISTS
+- Build the mark plan from the governing rules, rates, sections and figures stated in the sources, and treat it as CLOSED in the same way. A line earns marks only when a source states or directly proves it; your own belief that it is probably right earns nothing.
+
+ACCEPTABLE ALTERNATIVES (narrow exception — never a judgement call)
+- An argument, method or conclusion absent from the official answer is credited ONLY when the sources EXPLICITLY state it is acceptable (the marking scheme says "accept"/"alternative", or the source text expressly permits that method or treatment) AND it is technically correct, applied to the scenario, recomputed by you from the sources' figures, and distinct from work already credited. Report it under "Correct points credited" with that explicit source permission cited.
+- Without that explicit permission in the sources, an alternative is NOT IN ANSWER and scores zero — however plausible it looks to you.
+
+LINE-BY-LINE VERDICT (mandatory, internal, before any mark is awarded)
+- Go through the candidate's answer line by line (one sentence, working line or bullet at a time). Give EVERY line exactly one verdict: MATCHES official point #n / PARTLY MATCHES point #n (state what is missing) / CONTRADICTS the answer / NOT IN ANSWER / REPEAT of an earlier line / PADDING or restated question.
+- Only MATCHES and PARTLY MATCHES lines can carry marks. Each official point can be earned once, by its best matching line. The total is the sum of the marks of matched official points — nothing else can add to it.
+- If you are unsure whether a line matches, it does NOT match. Doubt always resolves to zero.
 
 EVERY AWARDED MARK MUST IDENTIFY FOUR THINGS (no four, no mark):
 1. the exact candidate words or workings that earn it (a verbatim quote or the arithmetic as written);
-2. the requirement or criterion of THIS question that the point satisfies;
+2. the specific official-answer / mark-plan point it matches, and the requirement of THIS question it satisfies;
 3. the technical support for it from the uploaded sources (document name plus the rule, rate, figure or heading relied on);
 4. the marks awarded for that point.
 A mark you cannot express in those four parts is not a mark — remove it.
-
-VALID ALTERNATIVES
-- Credit a valid alternative argument, procedure, calculation method, example or conclusion even when it is absent from the suggested answer, but ONLY when it is all four of: technically correct, relevant to the requirement asked, sufficiently developed or applied (not a bare assertion), and distinct from work already credited.
-- A different method is judged on its own correctness: recompute it from the sources' figures. Where the method is right and the answer is right, it earns the full marks the question allows, whatever the suggested answer used.
 
 WHAT NEVER EARNS A MARK
 - Do not award marks for effort, length, confidence, topic-name dropping, the number of bullet points, sympathy, pass-mark targeting, upward rounding, bonus marks, repetitions, vague claims, unsupported assumptions or merely related information.
@@ -572,7 +584,8 @@ UNVERIFIED MATERIAL (never invented credit)
 - Where a claim is plausible but the uploaded sources cannot verify it, award zero and treat it as an error or unsupported point. Do not create a separate review category, award it provisionally, halve it, or count it toward any percentage.
 
 FINAL RECHECK BEFORE OUTPUT
-- Recheck every positive mark you are about to print: for each one, re-read the quoted candidate words, confirm the requirement satisfied and the technical support, and confirm the point is not a restatement of another credited point. Remove unsupported or duplicate credit, then re-sum. The total is that sum and nothing else.
+- Recheck every positive mark you are about to print: for each one, re-read the quoted candidate words, confirm the official-answer point it matches, the requirement satisfied and the technical support, and confirm the point is not a restatement of another credited point. Remove unsupported, unmatched or duplicate credit, then re-sum. The total is that sum and nothing else.
+- MATCH-RATE CEILING: the total can never exceed the marks of the official-answer / mark-plan points the candidate actually matched. If the candidate matched points worth 11 of 20 marks, the ceiling is 11/20 before any partial-match reductions — however long, fluent or confident the rest of the answer is.
 - A fully correct answer can receive full marks at Moderate, Strict and Hard settings. Do not force lower marks in stricter modes: severity tightens what counts as sufficiently developed, it never removes credit that the evidence rule already supports.`;
 
 const MARK_METHOD = `MARK AWARD METHOD (mechanical — follow in this exact order, silently):
