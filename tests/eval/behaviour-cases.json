@@ -11,10 +11,10 @@
   "cases": [
     {
       "id": "valid-alternative-credited",
-      "title": "A correct alternative route absent from the suggested answer is credited",
+      "title": "A correct alternative is credited only when the sources explicitly accept it",
       "mode": "mark",
       "rigour": "strict",
-      "rubric": "Suggested answers are examples of creditworthy answers, not an exhaustive checklist unless an official marking scheme explicitly says an element is compulsory. Credit a valid alternative argument, procedure, calculation method, example or conclusion even when absent from the suggested answer, when it is technically correct, relevant, sufficiently developed or applied, and distinct from already credited work.",
+      "rubric": "The official/suggested answer is the closed mark plan. An alternative method absent from it is credited only when the sources explicitly state it is acceptable, it is technically correct, applied, recomputed from the sources and distinct from work already credited.",
       "inputs": {
         "question": "Q.1 (10 marks) A company bought machinery for Rs 1,000,000 on 1 July 2024. Required: compute the depreciation charge for the year ended 30 June 2025 and explain the treatment.",
         "userAnswer": "Straight-line over the machine's useful life of 5 years gives Rs 200,000 for a full year; the asset was held for 12 months of the year to 30 June 2025, so the charge is Rs 200,000. The residual value of nil is used because the source states the machine has no resale value.",
@@ -46,12 +46,14 @@
       },
       "expect": {
         "promptMustContain": [
-          "examples of creditworthy answers, not an exhaustive checklist",
-          "VALID ALTERNATIVES",
-          "Valid alternatives credited",
+          "THE OFFICIAL ANSWER IS THE BENCHMARK",
+          "ACCEPTABLE ALTERNATIVES",
+          "EXPLICITLY state it is acceptable",
           "distinct from work already credited"
         ],
-        "promptMustNotContain": ["Any point absent from the suggested answer scores zero"],
+        "promptMustNotContain": [
+          "Any point absent from the suggested answer scores zero"
+        ],
         "deterministic": [
           {
             "assert": "classificationAccepted",
@@ -60,14 +62,14 @@
           },
           {
             "assert": "reportSectionPresent",
-            "section": "Valid alternatives credited"
+            "section": "Correct points credited"
           }
         ]
       },
       "live": {
         "assertions": [
           {
-            "mustMatch": "Valid alternatives credited"
+            "mustMatch": "Correct points credited"
           },
           {
             "mustMatch": "200,000"
@@ -80,7 +82,10 @@
           }
         ]
       },
-      "parts": ["feedback", "marks"]
+      "parts": [
+        "feedback",
+        "marks"
+      ]
     },
     {
       "id": "duplicate-points-count-once",
@@ -134,7 +139,9 @@
             "rowsField": "classification"
           }
         ],
-        "promptMustNotContain": ["Every mention of a credited point earns another mark"]
+        "promptMustNotContain": [
+          "Every mention of a credited point earns another mark"
+        ]
       },
       "live": {
         "assertions": [
@@ -146,7 +153,10 @@
           }
         ]
       },
-      "parts": ["feedback", "marks"]
+      "parts": [
+        "feedback",
+        "marks"
+      ]
     },
     {
       "id": "compulsory-requirement-missing",
@@ -214,7 +224,9 @@
             "expectParts": 2
           }
         ],
-        "promptMustNotContain": ["Strong work elsewhere can compensate for a missing requirement"]
+        "promptMustNotContain": [
+          "Strong work elsewhere can compensate for a missing requirement"
+        ]
       },
       "live": {
         "assertions": [
@@ -229,14 +241,17 @@
           }
         ]
       },
-      "parts": ["feedback", "marks"]
+      "parts": [
+        "feedback",
+        "marks"
+      ]
     },
     {
       "id": "unsupported-alternative-pending-review",
-      "title": "A plausible alternative the sources cannot verify is held back, never credited",
+      "title": "A plausible alternative the sources do not accept scores zero",
       "mode": "mark",
       "rigour": "strict",
-      "rubric": "Where an alternative is plausible but the uploaded sources cannot verify it, list it as 'Pending review' and exclude it from awarded marks and total marks.",
+      "rubric": "Where an alternative is plausible but the uploaded sources neither contain it in the official answer nor explicitly accept it, award zero and report it as unsupported; never credit it provisionally.",
       "inputs": {
         "question": "Q.4 (6 marks) State the write-off period allowed for goodwill under the applicable standard in your study text and justify it.",
         "userAnswer": "Goodwill may be amortised over ten years, which is the maximum period some older guidance allows.",
@@ -268,8 +283,9 @@
       },
       "expect": {
         "promptMustContain": [
-          "list it under \"Pending review\"",
-          "exclude it from awarded marks and from total marks"
+          "award zero and treat it as an error or unsupported point",
+          "could also be an acceptable answer",
+          "Doubt always resolves to zero"
         ],
         "deterministic": [
           {
@@ -282,7 +298,9 @@
             "section": "Pending review"
           }
         ],
-        "promptMustNotContain": ["Any alternative is credited even without support"]
+        "promptMustNotContain": [
+          "Any alternative is credited even without support"
+        ]
       },
       "live": {
         "assertions": [
@@ -297,7 +315,10 @@
           }
         ]
       },
-      "parts": ["feedback", "marks"]
+      "parts": [
+        "feedback",
+        "marks"
+      ]
     },
     {
       "id": "new-subject-without-past-papers",
@@ -410,7 +431,10 @@
       "title": "A complete answer that never names the topic or standard still earns full marks",
       "mode": "mark",
       "rigour": "strict",
-      "parts": ["feedback", "marks"],
+      "parts": [
+        "feedback",
+        "marks"
+      ],
       "rubric": "Marks must not be deducted solely because the student did not write the name of the topic, chapter, section or standard. Judge the demonstrated knowledge; an answer that semantically matches the expected content earns full marks without the label, and naming it earns nothing by itself.",
       "inputs": {
         "question": "Q.1 (12 marks) A plant carried at Rs 26,000,000 (cost 40,000,000) is revalued on 1 January 2025 to Rs 30,000,000. Required: determine the carrying amount after the revaluation and explain where the movement is reported.",
