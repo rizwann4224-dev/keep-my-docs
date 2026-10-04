@@ -584,7 +584,7 @@ UNVERIFIED MATERIAL (never invented credit)
 - Where a claim is plausible but the uploaded sources cannot verify it, award zero and treat it as an error or unsupported point. Do not create a separate review category, award it provisionally, halve it, or count it toward any percentage.
 
 FINAL RECHECK BEFORE OUTPUT
-- Recheck every positive mark you are about to print: for each one, re-read the quoted candidate words, confirm the official-answer point it matches, the requirement satisfied and the technical support, and confirm the point is not a restatement of another credited point. Remove unsupported, unmatched or duplicate credit, then re-sum. The total is that sum and nothing else.
+- Recheck every positive mark you are about to print: for each one, re-read the quoted candidate words, confirm the official-answer point it matches, the requirement satisfied and the technical support, and confirm the point is not a restatement of another credited point. Remove unsupported or duplicate credit, and remove any credit not matched to an official-answer point, then re-sum. The total is that sum and nothing else.
 - MATCH-RATE CEILING: the total can never exceed the marks of the official-answer / mark-plan points the candidate actually matched. If the candidate matched points worth 11 of 20 marks, the ceiling is 11/20 before any partial-match reductions — however long, fluent or confident the rest of the answer is.
 - A fully correct answer can receive full marks at Moderate, Strict and Hard settings. Do not force lower marks in stricter modes: severity tightens what counts as sufficiently developed, it never removes credit that the evidence rule already supports.`;
 
