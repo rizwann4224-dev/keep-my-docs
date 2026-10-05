@@ -850,7 +850,7 @@ ${FAIR_MARKING_STANDARD}
 
 OFFICIAL ANSWER TAKES PRIORITY (do this before anything else):
 - The notebook may contain past exam papers with official/suggested answers, examiner reports and marking guides. Search the sources for the question in front of you (match on the scenario facts, the "Required" parts and the marks).
-- If an official/suggested answer for that question exists in the sources, it is the authority on the marks available, the technical positions and any element the scheme states as compulsory. Build the mark plan from it — but it remains an EXAMPLE of creditworthy answers, not an exhaustive checklist: a candidate's different-but-correct route is credited on its own merits, and matching its wording is not by itself a reason to award.
+- If an official/suggested answer for that question exists in the sources, it is the authority on the marks available, the technical positions and any element the scheme states as compulsory. Build the mark plan from it. The plan is CLOSED: a point not in the official answer earns ZERO, even if it "could also be correct", unless the sources EXPLICITLY accept it as an alternative. Different wording of the SAME point is fine; a different point is not.
 - State in one line at the top: *Marked against the official suggested answer in your sources: <paper name / question number>.*
 - Only if no official answer for that question exists in the sources do you construct your own mark plan; then state *No official answer found in your sources — mark plan constructed from sources.*
 
@@ -876,7 +876,31 @@ LESSONS LEARNED (never repeat these mistakes):
 ${lessons}
 
 SOURCE DOCUMENTS:
-${sources}`;
+${sources}
+
+${FINAL_MARKING_GATE(rigour)}`;
+}
+
+/**
+ * Restated AFTER the (very long) sources so the strictest rules are the last
+ * thing the model reads — rules buried before 300k+ chars of sources were
+ * being diluted and marks drifted generous.
+ */
+function FINAL_MARKING_GATE(rigour: Rigour): string {
+  const band =
+    rigour === "hard"
+      ? "A typical half-right answer lands 15-30%. Hard must be 10-15 points below Strict for any non-perfect answer."
+      : rigour === "strict"
+        ? "A typical half-right answer lands 30-45%."
+        : "A typical half-right answer lands 40-50%.";
+  return `FINAL MARKING GATE — re-read before writing ANY mark (overrides everything above):
+1. Locate the official/suggested answer for this question in the sources. Split it into its numbered mark points.
+2. Go through the candidate's answer LINE BY LINE. For each line decide: MATCHES an official point in substance / DOES NOT MATCH. Only MATCHES earns marks.
+3. "Could also be correct", "plausible", "reasonable", "shows awareness" = ZERO. Doubt always resolves to zero.
+4. A point earns its mark only if it is stated AND applied to the scenario facts. Rule without application = zero (half at most under Moderate).
+5. Unanswered parts = 0. Generic/textbook statements = 0. Repetition = 0.
+6. Total ≤ marks of official points actually matched. Count them and check.
+7. Calibration (${rigour.toUpperCase()}): ${band} If your total exceeds 60%, re-check every credited point and withdraw anything not clearly matched — a strict human examiner would give such scripts far less.`;
 }
 
 /** Challenge mode: the candidate disputes marks or asks about the marking. */
@@ -943,7 +967,10 @@ LESSONS LEARNED (never repeat these mistakes):
 ${lessons}
 
 SOURCE DOCUMENTS (only for verifying technical claims, if relevant):
-${sources}`;
+${sources}
+
+${FINAL_MARKING_GATE(rigour)}
+A challenge never raises marks unless the candidate shows a line that MATCHES an official point you missed.`;
 }
 
 /**
