@@ -64,7 +64,23 @@ function decodeMathBody(raw: string): string {
 /** Strip math delimiters and decode their contents; leave ordinary text alone. */
 export function decodeLatexToText(input: string): string {
   if (!input.includes("\\") && !input.includes("$")) return input;
-  return input
+  // Undelimited LaTeX that leaked into plain prose (no $ ... $ wrapper).
+  let out = input;
+  for (let i = 0; i < 12 && out.includes("\\frac"); i++) out = replaceFirstFrac(out);
+  out = out
+    .replace(/\\text\s*\{([^{}]*)\}/g, "$1")
+    .replace(/\\mathrm\s*\{([^{}]*)\}/g, "$1")
+    .replace(/\{,\}/g, ",")
+    .replace(/\\times/g, " × ")
+    .replace(/\\cdot/g, " × ")
+    .replace(/\\div/g, " ÷ ")
+    .replace(/\\leq|\\le\b/g, " ≤ ")
+    .replace(/\\geq|\\ge\b/g, " ≥ ")
+    .replace(/\\neq?/g, " ≠ ")
+    .replace(/\\approx/g, " ≈ ")
+    .replace(/\\%/g, "%")
+    .replace(/\\Rs\b/g, "Rs.");
+  return out
     .replace(/\$\$([\s\S]+?)\$\$/g, (_, m) => decodeMathBody(m))
     .replace(/\$([^$\n]+?)\$/g, (_, m) => decodeMathBody(m))
     .replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => decodeMathBody(m))
