@@ -1,5 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { decodeLatexToText } from "@/lib/latex";
+
 
 export function Markdown({ children }: { children: string }) {
   return (
@@ -60,7 +62,7 @@ export function Markdown({ children }: { children: string }) {
           hr: (props) => <hr className="my-6 border-border" {...props} />,
         }}
       >
-        {children}
+        {decodeLatexToText(children)}
       </ReactMarkdown>
     </div>
   );
