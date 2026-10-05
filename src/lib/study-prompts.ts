@@ -967,7 +967,10 @@ LESSONS LEARNED (never repeat these mistakes):
 ${lessons}
 
 SOURCE DOCUMENTS (only for verifying technical claims, if relevant):
-${sources}`;
+${sources}
+
+${FINAL_MARKING_GATE(rigour)}
+A challenge never raises marks unless the candidate shows a line that MATCHES an official point you missed.`;
 }
 
 /**
