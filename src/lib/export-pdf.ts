@@ -1,4 +1,5 @@
 import { jsPDF } from "jspdf";
+import { decodeLatexToText } from "@/lib/latex";
 import {
   conciseTitle,
   isListContinuation,

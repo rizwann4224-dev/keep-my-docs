@@ -17,6 +17,7 @@ import {
   WidthType,
 } from "docx";
 import { fileNameFromQuestion, type HistoryExport } from "@/lib/export-pdf";
+import { decodeLatexToText } from "@/lib/latex";
 import {
   conciseTitle,
   isListContinuation,
