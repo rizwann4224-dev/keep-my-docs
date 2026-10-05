@@ -585,6 +585,7 @@ function label(r: Renderer, text: string, gap = 4) {
  * stays on the line that owns it.
  */
 function renderMarkdown(body: string, r: Renderer) {
+  body = decodeLatexToText(body);
   const lines = body.replace(/\r/g, "").split("\n");
   /** Running text of a wrapped list item, flushed when the item ends. */
   let openLevel = -1;

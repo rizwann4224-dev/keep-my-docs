@@ -125,6 +125,7 @@ export function buildTable(lines: string[], totalWidth = CONTENT_WIDTH): Table {
  * under its own first word.
  */
 function markdownToBlocks(markdown: string, totalWidth = CONTENT_WIDTH): (Paragraph | Table)[] {
+  markdown = decodeLatexToText(markdown);
   const lines = markdown.replace(/\r/g, "").split("\n");
   const blocks: (Paragraph | Table)[] = [];
   let i = 0;
