@@ -639,7 +639,7 @@ export const Route = createFileRoute("/api/study")({
                   : askSystemPrompt(sources, lessons);
         }
 
-        const userContent =
+        const baseUserContent =
           data.mode === "classify"
             ? `Classify all ${classificationAttempts.length} marked attempt${
                 classificationAttempts.length === 1 ? "" : "s"
@@ -661,6 +661,12 @@ export const Route = createFileRoute("/api/study")({
                   : data.mode === "challenge"
                     ? `ORIGINAL QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ORIGINAL ANSWER:\n${data.userAnswer?.trim() || "(none provided)"}\n\nORIGINAL MARKING OUTPUT GIVEN TO CANDIDATE:\n${data.originalEvaluation?.trim() || "(not provided)"}\n\nORIGINAL MARKS AWARDED: ${data.originalMarks ?? "unknown"} / ${data.maxMarks ?? "unknown"}\n\nCANDIDATE'S CHALLENGE / QUERY:\n${data.challengeQuery?.trim() || ""}`
                     : data.question;
+        // Long inputs: restate the completeness rule AFTER the input, so it is
+        // the last instruction read and nothing late in the input gets skipped.
+        const userContent =
+          data.mode !== "classify" && data.mode !== "insights" && baseUserContent.length > 1_500
+            ? `${baseUserContent}\n\n[COMPLETENESS CHECK — the input above is long. Before answering, list to yourself every question, sub-part, requirement, figure and condition in it, from the first line to the last. Address every one with equal precision, verify every figure against the sources, and do not skip, merge or shorten later parts.]`
+            : baseUserContent;
 
         // Ask mode keeps the thread's earlier turns so follow-ups ("and for the
         // next year?", "rephrase that") resolve against the previous question.
