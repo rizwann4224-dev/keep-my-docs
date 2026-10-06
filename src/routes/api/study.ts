@@ -639,7 +639,7 @@ export const Route = createFileRoute("/api/study")({
                   : askSystemPrompt(sources, lessons);
         }
 
-        const userContent =
+        const baseUserContent =
           data.mode === "classify"
             ? `Classify all ${classificationAttempts.length} marked attempt${
                 classificationAttempts.length === 1 ? "" : "s"
@@ -661,6 +661,12 @@ export const Route = createFileRoute("/api/study")({
                   : data.mode === "challenge"
                     ? `ORIGINAL QUESTION / SCENARIO:\n${data.question}\n\nCANDIDATE'S ORIGINAL ANSWER:\n${data.userAnswer?.trim() || "(none provided)"}\n\nORIGINAL MARKING OUTPUT GIVEN TO CANDIDATE:\n${data.originalEvaluation?.trim() || "(not provided)"}\n\nORIGINAL MARKS AWARDED: ${data.originalMarks ?? "unknown"} / ${data.maxMarks ?? "unknown"}\n\nCANDIDATE'S CHALLENGE / QUERY:\n${data.challengeQuery?.trim() || ""}`
                     : data.question;
+        // Long inputs: restate the completeness rule AFTER the input, so it is
+        // the last instruction read and nothing late in the input gets skipped.
+        const userContent =
+          data.mode !== "classify" && data.mode !== "insights" && baseUserContent.length > 1_500
+            ? `${baseUserContent}\n\n[COMPLETENESS CHECK — the input above is long. Before answering, list to yourself every question, sub-part, requirement, figure and condition in it, from the first line to the last. Address every one with equal precision, verify every figure against the sources, and do not skip, merge or shorten later parts.]`
+            : baseUserContent;
 
         // Ask mode keeps the thread's earlier turns so follow-ups ("and for the
         // next year?", "rephrase that") resolve against the previous question.
@@ -942,13 +948,15 @@ export const Route = createFileRoute("/api/study")({
         // stream parser below handles it unchanged.
         if (!upstream) {
           const groqKey = readKey("GROQ_API_KEY");
-          if (groqKey) {
+          // Never cut the user's own input: if it cannot fit Groq's small
+          // limit whole, skip Groq rather than answer an incomplete input.
+          if (groqKey && userContent.length <= 12_000) {
             // Groq's on-demand tier caps a single request at ~8k tokens per
             // minute, so the full notebook context (hundreds of thousands of
             // characters) always came back 413 and the whole request ended as
             // a 502. Send a trimmed prompt instead — head + tail of the source
             // block keeps the instructions and the most relevant extract.
-            const groqUserContent = clampForGroq(userContent, 6_000);
+            const groqUserContent = userContent;
             const groqSystem = clampForGroq(
               system,
               Math.max(4_000, GROQ_MAX_PROMPT_CHARS - groqUserContent.length),
