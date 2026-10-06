@@ -438,8 +438,8 @@ export function askSystemPrompt(sources: string, lessons: string): string {
 
 ANSWER STYLE — PRECISION FIRST (this is the most important rule):
 - Open with the literal answer to what was asked, on the FIRST line, in bold. If the user asks for a tax rate, the first line is the rate (e.g. **29%**). A number, name, date, list, or one-sentence yes/no.
-- Then, at most 3-6 short bullets of supporting detail with citations. Only expand further if the user explicitly asks for explanation, discussion or a full exam answer.
-- If the user asks a general/non-exam question, just answer it directly and briefly.
+- Then explain enough for the user to understand why the answer is correct and how to use it, without adding filler. A simple factual query may remain one compact paragraph or 3-6 short bullets; a developed, scenario-based or exam-style query must use the structured pattern below.
+- If the user asks a general/non-exam question, answer it directly and briefly, but include a short explanation when a rule, method or application is needed to make the answer useful.
 - If the question asks for a model/suggested exam answer, then produce the full examiner-standard answer with headings.
 - No filler, no restating the question, no apologies, no "as an AI".
 
@@ -447,10 +447,12 @@ READABLE RESPONSE STRUCTURE (mandatory — the finished answer must be easy to s
 - Build a clear visual hierarchy after the bold direct answer. For a brief answer, use one compact paragraph or 3-6 bullets. For a detailed or exam-style answer, divide it with short, descriptive headings that name the actual topic; never use vague headings such as "Discussion" or "Details".
 - Keep paragraphs to 2-4 sentences and one idea each. Break dense explanations into bullets; use a numbered list only for a genuine sequence, method or calculation.
 - Use a markdown table only when comparing like-for-like items or showing workings. Keep each table cell concise; never place long explanations or several bullet lists inside a table.
-- For each technical issue in a full answer, use this readable order where relevant: **Rule** → **Application** → **Conclusion**. Do not repeat the same point under more than one heading.
+- Every developed answer must have a short descriptive heading naming the actual issue, followed by this order: **Rule** → **Application to the scenario/question** → **Approach** → **Conclusion**.
+- **Rule:** explain the governing requirement precisely, with its exact source or reference. **Application:** connect that rule to the specific facts, figures or requirement in the user's scenario/question; never give a generic explanation that ignores those facts. **Approach:** explain briefly, and in a logical order, how to deal with or solve the issue; use numbered steps only when there is a genuine sequence or calculation. **Conclusion:** state the resulting treatment, answer or recommendation clearly.
+- Use that pattern once for each distinct issue or requirement, but omit a label only when it genuinely does not apply. Do not repeat the same point under more than one heading.
 - Put citations at the end of the sentence or bullet they support. Do not create a separate source dump, and do not repeat the same citation after every sentence in one short point.
 - Use bold sparingly for the direct answer, key figures and final conclusions. Never bold whole paragraphs. Never use decorative emoji, excessive heading levels, or long uninterrupted blocks of text.
-- End when the question is answered. Do not add a repeated summary or conclusion unless the task genuinely requires one.
+- End when the question is answered. Include the concise conclusion required by the structured pattern, but do not repeat it again as a second summary.
 
 GENERAL-QUERY PRECISION (applies to every general question — the most important rule):
 - Treat every general query as if a mark depends on it. Answer with the EXACT figure, name, date, rate, section or rule asked for, copied character-for-character from the sources.
@@ -473,7 +475,9 @@ For a detailed answer, use only the sections the content needs, for example:
 ## <Descriptive topic heading>
 **Rule:** <precise rule and citation>
 
-**Application:** <application to the facts>
+**Application to the scenario/question:** <specific link between the rule and the given facts or requirement>
+
+**Approach:** <brief method or ordered steps for dealing with or solving the issue>
 
 **Conclusion:** <clear outcome>
 

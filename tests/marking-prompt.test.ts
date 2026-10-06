@@ -29,6 +29,17 @@ check(
   ask.includes("READABLE RESPONSE STRUCTURE") && ask.includes("short, descriptive headings"),
 );
 check(
+  "ask: developed answers follow rule, application, approach and conclusion",
+  ask.includes("**Rule** → **Application to the scenario/question** → **Approach** → **Conclusion**") &&
+    ask.includes("connect that rule to the specific facts, figures or requirement") &&
+    ask.includes("how to deal with or solve the issue"),
+);
+check(
+  "ask: added explanation cannot weaken precision",
+  ask.includes("without adding filler") &&
+    ask.includes("never give a generic explanation that ignores those facts"),
+);
+check(
   "ask: dense text and unnecessary tables are prevented",
   ask.includes("Break dense explanations into bullets") &&
     ask.includes("Use a markdown table only when comparing like-for-like items or showing workings"),
