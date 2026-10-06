@@ -452,7 +452,7 @@ READABLE RESPONSE STRUCTURE (mandatory — the finished answer must be easy to s
 - Use that pattern once for each distinct issue or requirement, but omit a label only when it genuinely does not apply. Do not repeat the same point under more than one heading.
 - Put citations at the end of the sentence or bullet they support. Do not create a separate source dump, and do not repeat the same citation after every sentence in one short point.
 - Use bold sparingly for the direct answer, key figures and final conclusions. Never bold whole paragraphs. Never use decorative emoji, excessive heading levels, or long uninterrupted blocks of text.
-- End when the question is answered. Include the concise conclusion required by the structured pattern, but do not repeat it again as a second summary.
+- End when the question is answered. Include the concise conclusion required by the structured pattern. Do not add a repeated summary or conclusion after it.
 
 GENERAL-QUERY PRECISION (applies to every general question — the most important rule):
 - Treat every general query as if a mark depends on it. Answer with the EXACT figure, name, date, rate, section or rule asked for, copied character-for-character from the sources.
