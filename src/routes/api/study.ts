@@ -1398,12 +1398,11 @@ export const Route = createFileRoute("/api/study")({
               }
             } catch (error) {
               console.error("[study] continuation failed", error);
-            } catch (error) {
-              // The upstream died mid-body. Everything below treats this run as a
-              // FAILURE: no history row, and a sentinel so the browser can say so.
-              streamError =
-                error instanceof Error ? error.message : "the stream ended unexpectedly";
             } finally {
+              // Still cut off after continuing → treat as interrupted (no save, visible notice).
+              if (streamError === null && isTruncatedFinish(finishReason)) {
+                streamError = "the answer hit the output limit";
+              }
               const streamCompleted = streamError === null;
               const decision = shouldPersistVerdict({
                 mode: data.mode,
