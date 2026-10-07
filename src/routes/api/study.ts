@@ -348,6 +348,24 @@ export function deltaFromPayload(source: StreamSource, payload: string): string 
   }
 }
 
+/** Provider stop reason in an SSE payload, if present ("MAX_TOKENS", "length", "STOP"...). */
+export function finishFromPayload(payload: string): string | null {
+  try {
+    const json = JSON.parse(payload) as {
+      choices?: { finish_reason?: string | null }[];
+      candidates?: { finishReason?: string }[];
+    };
+    return json.candidates?.[0]?.finishReason ?? json.choices?.[0]?.finish_reason ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the provider stopped because it hit its output cap, not because it finished. */
+export function isTruncatedFinish(reason: string | null): boolean {
+  return !!reason && /^(MAX_TOKENS|length|max_tokens)$/i.test(reason);
+}
+
 export type CollectedStream = {
   text: string;
   /** True when the upstream body ended by error rather than by finishing. */
@@ -744,7 +762,10 @@ export const Route = createFileRoute("/api/study")({
                   })),
                   { role: "user", parts: [{ text: userContent }] },
                 ],
-                generationConfig: geminiGenerationConfig(model, mode, jsonConfig()),
+                generationConfig: {
+                  maxOutputTokens: 65536,
+                  ...geminiGenerationConfig(model, mode, jsonConfig()),
+                },
               });
 
             const postStream = (model: string, mode: ReasoningMode, timeoutMs: number) =>
@@ -1251,6 +1272,7 @@ export const Route = createFileRoute("/api/study")({
             const reader = upstream.body!.getReader();
             let streamError: string | null = null;
             let sawDone = false;
+            let finishReason: string | null = null;
             try {
               // Non-streaming Gemini fallback already produced plain UTF-8 text —
               // forward it as-is, no SSE parse.
@@ -1284,9 +1306,98 @@ export const Route = createFileRoute("/api/study")({
                       full += delta;
                       controller.enqueue(encoder.encode(delta));
                     }
+                    finishReason = finishFromPayload(payload) ?? finishReason;
                   }
                 }
               } // end SSE branch
+            } catch (error) {
+              streamError =
+                error instanceof Error ? error.message : "the stream ended unexpectedly";
+            }
+            // Auto-continue: when the answer was cut off (output cap reached, or the
+            // connection dropped after text arrived), ask Gemini to carry on from
+            // the exact point it stopped, so the user gets the complete answer.
+            try {
+              const contKey = readServerKey("GOOGLE_API_KEY", "GEMINI_API_KEY");
+              const contModel =
+                source === "google" || source === "google-plain"
+                  ? servedModel
+                  : data.mode === "mark" || data.mode === "challenge"
+                    ? GOOGLE_MODEL_CHAIN_MARK[0]
+                    : GOOGLE_MODEL_CHAIN[0];
+              for (
+                let round = 0;
+                round < 4 &&
+                contKey &&
+                contModel &&
+                full.trim().length > 0 &&
+                (isTruncatedFinish(finishReason) || streamError !== null);
+                round++
+              ) {
+                const res = await fetch(
+                  `https://generativelanguage.googleapis.com/v1beta/models/${contModel}:streamGenerateContent?alt=sse`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "x-goog-api-key": contKey },
+                    body: JSON.stringify({
+                      systemInstruction: { parts: [{ text: system }] },
+                      contents: [
+                        ...priorMessages.map((m) => ({
+                          role: m.role === "assistant" ? "model" : "user",
+                          parts: [{ text: m.content }],
+                        })),
+                        { role: "user", parts: [{ text: userContent }] },
+                        { role: "model", parts: [{ text: full }] },
+                        {
+                          role: "user",
+                          parts: [
+                            {
+                              text: "Your previous reply was cut off. Continue EXACTLY from the last character you wrote — do not repeat anything, do not restart, do not add a preamble. Finish every remaining part, table and section in the same format.",
+                            },
+                          ],
+                        },
+                      ],
+                      generationConfig: {
+                        maxOutputTokens: 65536,
+                        ...geminiGenerationConfig(contModel, data.mode),
+                      },
+                    }),
+                  },
+                );
+                if (!res.ok || !res.body) break;
+                streamError = null;
+                finishReason = null;
+                const r2 = res.body.getReader();
+                let buf2 = "";
+                let added = 0;
+                try {
+                  for (;;) {
+                    const { done, value } = await r2.read();
+                    if (done) break;
+                    buf2 += decoder.decode(value, { stream: true });
+                    const ls = buf2.split("\n");
+                    buf2 = ls.pop() ?? "";
+                    for (const line of ls) {
+                      const t = line.trim();
+                      if (!t.startsWith("data:")) continue;
+                      const payload = t.slice(5).trim();
+                      const delta = deltaFromPayload("google", payload);
+                      if (delta) {
+                        full += delta;
+                        added += delta.length;
+                        controller.enqueue(encoder.encode(delta));
+                      }
+                      finishReason = finishFromPayload(payload) ?? finishReason;
+                    }
+                  }
+                } catch (error) {
+                  streamError =
+                    error instanceof Error ? error.message : "the stream ended unexpectedly";
+                }
+                if (added === 0) break;
+              }
+            } catch (error) {
+              console.error("[study] continuation failed", error);
             } catch (error) {
               // The upstream died mid-body. Everything below treats this run as a
               // FAILURE: no history row, and a sentinel so the browser can say so.
