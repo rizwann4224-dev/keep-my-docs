@@ -701,6 +701,7 @@ export const Route = createFileRoute("/api/study")({
         // (no SSE framing). Everything else is OpenAI-style SSE except "google".
         let source: StreamSource = "gateway";
         let servedModel = "";
+        let servedGoogleKey = "";
         // Why each provider failed, so the final error names the real cause
         // instead of a blanket "unavailable" — e.g. the gateway running out of
         // credits while a GEMINI_API_KEY that IS set gets rejected by Google.
@@ -729,10 +730,18 @@ export const Route = createFileRoute("/api/study")({
         // keep walking every model, and on timeout retry once with thinking off
         // (thinking is what makes stream headers slow on large mark prompts).
         if (!upstream) {
-          const googleKey = readKey("GOOGLE_API_KEY", "GEMINI_API_KEY");
-          if (googleKey) {
+          // Original key first; the backup key only while the original is limited.
+          const geminiKeys = orderedGeminiKeys();
+          if (geminiKeys.length === 0) {
             console.error(
-              `[study] Gemini key present (${googleKey.slice(0, 6)}…${googleKey.slice(-4)}, len=${googleKey.length}) — trying direct Google API first`,
+              "[study] No GEMINI_API_KEY / GOOGLE_API_KEY in process.env — Gemini path skipped",
+            );
+          }
+          for (const [keyIndex, googleKey] of geminiKeys.entries()) {
+            if (upstream) break;
+            const isLastKey = keyIndex === geminiKeys.length - 1;
+            console.error(
+              `[study] trying Gemini with the ${keyLabel(googleKey)} key`,
             );
             const googleChain =
               data.mode === "mark" || data.mode === "challenge"
@@ -884,11 +893,23 @@ export const Route = createFileRoute("/api/study")({
                 }
                 upstream = res;
                 servedModel = model;
-                console.error(`[study] Gemini served via ${model} (${source})`);
+                servedGoogleKey = googleKey;
+                markGeminiKeyHealthy(googleKey);
+                console.error(
+                  `[study] Gemini served via ${model} (${source}, ${keyLabel(googleKey)} key)`,
+                );
                 break;
               }
 
+              const retryAfter = res.headers.get("retry-after");
               googleError = await describeHttpFailure(`Gemini fallback (${model})`, res);
+              // A limit / quota hit on this key: park it and move straight to the
+              // backup key (same model first). The original key is retried on a
+              // later request once its cooldown passes.
+              if (isKeyLimitStatus(res.status)) {
+                markGeminiKeyLimited(googleKey, retryAfter);
+                if (!isLastKey) break;
+              }
               // Keep walking the chain on per-model problems (404 unknown id,
               // 400 bad config, 429/503 transient). Only stop on auth / hard
               // client errors that every model will also hit (401/403).
@@ -898,10 +919,6 @@ export const Route = createFileRoute("/api/study")({
               }
               // Everything else (404/400/5xx): try the next model.
             }
-          } else {
-            console.error(
-              "[study] No GEMINI_API_KEY / GOOGLE_API_KEY in process.env — Gemini path skipped",
-            );
           }
         }
 

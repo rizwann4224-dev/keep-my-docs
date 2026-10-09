@@ -19,6 +19,7 @@ import { resolve } from "node:path";
 const AI_KEYS = [
   "GEMINI_API_KEY",
   "GOOGLE_API_KEY",
+  "GEMINI_API_KEY_BACKUP",
   "GEMINI_MODEL",
   "GROQ_API_KEY",
   "GROK_API_KEY",
